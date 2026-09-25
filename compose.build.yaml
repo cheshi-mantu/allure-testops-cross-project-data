@@ -1,0 +1,24 @@
+# Local build from source:
+#
+#   docker compose -f compose.build.yaml up -d --build
+#
+# For the published image with persistent settings use docker-compose.yml,
+# the default file. Here settings entered in the UI live in /app/data inside
+# the container: they survive stop/start/restart and are dropped by `down`,
+# which removes the container.
+name: allure-testops-cross-project-data
+
+services:
+  analytics:
+    image: ${ANALYTICS_IMAGE:-allure-testops-cross-project-data:local}
+    build: .
+    container_name: allure-testops-cross-project-data
+    restart: unless-stopped
+    ports:
+      - "${ANALYTICS_PORT:-8080}:8080"
+    # To keep settings across `down` / image upgrades, uncomment the volume.
+    # volumes:
+    #   - analytics-data:/app/data
+
+# volumes:
+#   analytics-data:
