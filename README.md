@@ -2,7 +2,7 @@
 
 A containerized React and Node.js application that reads the Allure TestOps REST API and shows:
 
-- **Open launches** of all projects as a "project → (creator) → launch" tree. Launches can be filtered by tags, environment and part of the name. The second grouping level, by creator, is turned on with a switch.
+- **Launches** of all projects as a "project → (creator) → launch" tree: all open launches, plus closed launches of the last 30 days that still have unresolved results. Each launch shows its state, result counts by status (passed, failed, broken, skipped, unknown, in progress), unresolved and muted result counts, and new / known defect counts. Launches can be filtered by state, tags, environment and part of the name, and by having not passed results (anything but passed and in progress), results in progress, unresolved results, defects or muted results; these flags combine with AND. The second grouping level, by creator, is turned on with a switch.
 - **Defects** of all projects as a tree with dynamic grouping by project, status, linked issue tracker task, creator and matcher regex. Levels follow the order in which they were selected. Defects can be filtered by status, creator, issue tracker task, name or ID, and by the text of their matcher regexes. Each defect shows its matchers and the number of affected test cases, test results and launches; groups show the sum over their defects.
 
 ## Finding the same defect in different projects
@@ -62,7 +62,9 @@ The server writes the endpoint, token and refresh periods to `/app/data/config.j
 | --- | --- |
 | Authentication | `POST /api/uaa/oauth/token` (`grant_type=apitoken`) → JWT |
 | Projects | `GET /api/rs/project` |
-| Open launches | `GET /api/rs/launch?projectId=…&preview=true&search=<base64 [{"id":"close","type":"boolean","value":false}]>`. One request per page returns tags, environment and creator at once |
+| Open launches | `GET /api/rs/launch?projectId=…&preview=true&search=<base64 [{"id":"close","type":"boolean","value":false}]>`. One request per page returns tags, environment, creator and defect counts |
+| Closed launches of the last 30 days | the same request with `[{"id":"close","type":"boolean","value":true},{"id":"createdAfter","type":"long","value":<epoch ms>}]`; it also returns result counts by status |
+| Launch details | `GET /api/rs/launch/{id}/unresolved?size=1` and `GET /api/rs/launch/{id}/muted?size=1`, reading `totalElements`; `GET /api/rs/launch/{id}/statistic` for launches the list returns without result counts |
 | Defects | `GET /api/rs/defect?projectId=…`. The `count` field holds the number of affected test cases |
 | Defect counters | `GET /api/rs/defect/{id}/testresult?size=1` and `GET /api/rs/defect/{id}/launch?size=1`, reading `totalElements` |
 | Defect matchers | `GET /api/rs/defect/{id}/matcher` |
@@ -72,6 +74,7 @@ Pages are requested 1000 items at a time. At most 8 requests to Allure TestOps r
 ## Limitations
 
 - **Defect creator.** The Allure TestOps API does not return who created a defect. Matchers do have an author, so the author of the defect's earliest matcher is taken as the defect creator and marked "(matcher)" in the UI. This is an approximation: someone else may have added the matcher later. Defects without matchers stay under "(creator unknown)". If the server starts returning `createdBy` in the defect list, that value wins.
+- **Cost of launch details.** Unresolved and muted counts take a request each per launch, and open launches need one more for result counts. A closed launch without unresolved results is dropped after the first request.
 - **Cost of defect details.** Matchers, test results and launches take three requests per defect. On an instance with thousands of defects a crawl takes noticeable time, so defect auto refresh is off by default.
 - **Access to the application.** The application itself has no authentication: anyone who opens the page sees the data and can change the settings. Expose it on an internal network only.
 - The application sees only the projects the token owner has access to.

@@ -38,7 +38,19 @@ for (const p of projects) {
       tags: [{ id: i % 4, name: tagNames[i % 4] }, ...(i % 5 === 0 ? [{ id: 9, name: "release" }] : [])],
       environment: [envs[i % 2], envs[2 + (i % 2)]].map(([n, v], k) => ({ id: k, name: v, variable: { id: k, name: n } })),
       createdBy: users[i % 3],
-      createdDate: Date.now() - i * 3_600_000,
+      // Every third launch is closed; some of them are older than 30 days.
+      createdDate: Date.now() - (i % 3 === 0 ? i * 4 : i) * 86_400_000,
+      // Status null means the result is still in progress.
+      statistic: [
+        { status: "passed", count: 20 + i },
+        ...(i % 2 ? [{ status: "failed", count: i }] : []),
+        ...(i % 4 === 1 ? [{ status: "broken", count: 2 }] : []),
+        ...(i % 3 === 1 ? [{ status: null, count: 3 }] : []),
+      ],
+      unresolved: i % 2 ? i : 0,
+      muted: i % 5 === 2 ? 1 : 0,
+      newDefectsCount: i % 4 === 3 ? 1 : 0,
+      knownDefectsCount: i % 2,
     });
   }
   for (let i = 0; i < 6; i++) {
@@ -94,8 +106,18 @@ createServer((req, res) => {
   if (path === "/api/project") return send(200, page(projects, url));
   if (path === "/api/launch") {
     const search = JSON.parse(Buffer.from(url.searchParams.get("search") ?? "W10=", "base64").toString());
-    const onlyOpen = search.some((c) => c.id === "close" && c.value === false);
-    return send(200, page(launches.filter((l) => l.projectId === projectId && (!onlyOpen || !l.closed)), url));
+    const closed = search.find((c) => c.id === "close")?.value;
+    const after = search.find((c) => c.id === "createdAfter")?.value ?? 0;
+    const found = launches
+      .filter((l) => l.projectId === projectId && (closed === undefined || l.closed === closed) && l.createdDate >= after)
+      // The list carries result counts for closed launches only.
+      .map(({ unresolved, muted, statistic, ...l }) => ({ ...l, statistic: l.closed ? statistic : null }));
+    return send(200, page(found, url));
+  }
+  if ((m = path.match(/^\/api\/launch\/(\d+)\/(statistic|unresolved|muted)$/))) {
+    const l = launches.find((x) => x.id === Number(m[1]));
+    if (m[2] === "statistic") return send(200, l.statistic);
+    return send(200, { content: [], totalElements: l[m[2]], totalPages: l[m[2]], last: false });
   }
   if (path === "/api/defect") {
     return send(200, page(defects.filter((d) => d.projectId === projectId).map(({ projectId, matchers, ...d }) => d), url));

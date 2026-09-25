@@ -6,6 +6,7 @@ import { isActive, matcherKey, matcherLabel, selectedMatchers, sharedKeys, type 
 import { RefreshBar } from "./RefreshBar";
 import { buildTree, type Grouper, type TreeRow } from "./tree";
 import { useDataset } from "./useDataset";
+import { resizableComponents, useColumnWidths } from "./useColumnWidths";
 import { useExpanded } from "./useExpanded";
 
 type GroupId = "project" | "status" | "issue" | "author" | RegexScope;
@@ -48,9 +49,7 @@ function MatcherList({ matchers }: { matchers: DefectMatcher[] | null }) {
     regex && (
       <div>
         <Typography.Text type="secondary">{kind} </Typography.Text>
-        <Typography.Text code ellipsis={{ tooltip: regex }} style={{ maxWidth: 320 }}>
-          {regex}
-        </Typography.Text>
+        <Typography.Text code>{regex}</Typography.Text>
       </div>
     );
   return (
@@ -207,7 +206,7 @@ export function DefectsPage() {
     {
       title: "Defect",
       key: "name",
-      minWidth: 280,
+      width: 320,
       onCell: (r) => ({ colSpan: r.kind === "group" ? 6 : 1 }),
       render: (_, r) =>
         r.kind === "group" ? (
@@ -284,6 +283,8 @@ export function DefectsPage() {
     { title: "Test results", key: "tr", width: 110, align: "right", render: counter((d) => d.testResults) },
     { title: "Launches", key: "launches", width: 90, align: "right", render: counter((d) => d.launches) },
   ];
+
+  const sized = useColumnWidths("defects", columns);
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
@@ -386,14 +387,20 @@ export function DefectsPage() {
         <Button size="small" onClick={collapseAll}>
           Collapse all
         </Button>
+        <Button size="small" onClick={sized.reset}>
+          Reset column widths
+        </Button>
       </Space>
       <Table<TreeRow<Defect>>
         size="small"
         rowKey="key"
-        columns={columns}
+        className="wrap-table"
+        columns={sized.columns}
+        components={resizableComponents}
+        tableLayout="fixed"
         dataSource={rows}
         pagination={false}
-        scroll={{ x: "max-content" }}
+        scroll={{ x: sized.totalWidth }}
         loading={!data && (snapshot?.refreshing ?? true)}
         expandable={{ expandedRowKeys: expanded, onExpand: (open, r) => onExpand(open, r), indentSize: 24 }}
         locale={{ emptyText: <Empty description={data ? "No defects found" : "Loading"} /> }}

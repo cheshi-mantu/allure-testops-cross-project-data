@@ -1,19 +1,35 @@
 import { mapLimit } from "./pool.js";
-import type { ApiDefectMatcher, ApiProject, TestOpsClient } from "./testops.js";
+import type { ApiDefectMatcher, ApiLaunch, ApiProject, ApiStatusCount, TestOpsClient } from "./testops.js";
 
 export interface Project {
   id: number;
   name: string;
 }
 
+export interface LaunchStatistic {
+  passed: number;
+  failed: number;
+  broken: number;
+  skipped: number;
+  unknown: number;
+  inProgress: number;
+}
+
 export interface Launch {
   id: number;
   name: string;
   projectId: number;
+  closed: boolean;
   createdBy: string | null;
   createdDate: number | null;
   tags: string[];
   env: { name: string; value: string }[];
+  /** null when the counts could not be loaded. */
+  statistic: LaunchStatistic | null;
+  unresolved: number | null;
+  muted: number | null;
+  newDefects: number | null;
+  knownDefects: number | null;
 }
 
 export interface Defect {
@@ -42,6 +58,7 @@ interface Collected<T> {
 
 export interface LaunchesData extends Omit<Collected<Launch>, "items"> {
   launches: Launch[];
+  closedLaunchesDays: number;
 }
 
 export interface DefectsData extends Omit<Collected<Defect>, "items"> {
@@ -84,22 +101,73 @@ async function perProject<T>(
   };
 }
 
+/** Closed launches are looked at this far back. */
+export const CLOSED_LAUNCHES_DAYS = 30;
+const LAUNCH_DETAILS_IN_PARALLEL = 8;
+
+function toStatistic(counts: ApiStatusCount[]): LaunchStatistic {
+  const s: LaunchStatistic = { passed: 0, failed: 0, broken: 0, skipped: 0, unknown: 0, inProgress: 0 };
+  for (const { status, count } of counts) {
+    if (status === null) s.inProgress += count;
+    else if (status in s && status !== "inProgress") s[status as keyof LaunchStatistic] += count;
+    else s.unknown += count;
+  }
+  return s;
+}
+
+function toLaunch(l: ApiLaunch, projectId: number): Launch {
+  return {
+    id: l.id,
+    name: l.name,
+    projectId: l.projectId ?? projectId,
+    closed: Boolean(l.closed),
+    createdBy: l.createdBy ?? null,
+    createdDate: l.createdDate ?? null,
+    tags: (l.tags ?? []).map((t) => t.name),
+    env: (l.environment ?? []).map((e) => ({ name: e.variable?.name ?? "", value: e.name })),
+    statistic: l.statistic ? toStatistic(l.statistic) : null,
+    unresolved: null,
+    muted: null,
+    newDefects: l.newDefectsCount ?? null,
+    knownDefects: l.knownDefectsCount ?? null,
+  };
+}
+
+/**
+ * Open launches, plus closed launches of the last CLOSED_LAUNCHES_DAYS that
+ * still have unresolved results.
+ */
 export async function collectLaunches(client: TestOpsClient, report: Report): Promise<LaunchesData> {
+  const since = Date.now() - CLOSED_LAUNCHES_DAYS * 86_400_000;
   const { items, ...rest } = await perProject(client, report, "Launches", async (p) => {
-    const launches = await client.openLaunches(p.id);
-    return launches.map(
-      (l): Launch => ({
-        id: l.id,
-        name: l.name,
-        projectId: l.projectId ?? p.id,
-        createdBy: l.createdBy ?? null,
-        createdDate: l.createdDate ?? null,
-        tags: (l.tags ?? []).map((t) => t.name),
-        env: (l.environment ?? []).map((e) => ({ name: e.variable?.name ?? "", value: e.name })),
-      }),
-    );
+    const [open, closed] = await Promise.all([client.openLaunches(p.id), client.closedLaunchesSince(p.id, since)]);
+    return [...open, ...closed].map((l) => toLaunch(l, p.id));
   });
-  return { ...rest, launches: items };
+
+  // Unresolved and muted counts, and the statistic when the list has none,
+  // are requested per launch. A closed launch without unresolved results is
+  // dropped before its other counts are requested.
+  let done = 0;
+  const settled = <T>(r: PromiseSettledResult<T>) => (r.status === "fulfilled" ? r.value : null);
+  const kept = await mapLimit(items, LAUNCH_DETAILS_IN_PARALLEL, async (l) => {
+    try {
+      l.unresolved = await client.count(`/api/rs/launch/${l.id}/unresolved`).catch(() => null);
+      if (l.closed && l.unresolved === 0) return null;
+      const [muted, statistic] = await Promise.allSettled([
+        client.count(`/api/rs/launch/${l.id}/muted`),
+        l.statistic ?? client.launchStatistic(l.id).then(toStatistic),
+      ]);
+      l.muted = settled(muted);
+      l.statistic = settled(statistic);
+      return l;
+    } finally {
+      if (++done % 25 === 0 || done === items.length) {
+        report(`Launches: details collected for ${done} of ${items.length}`);
+      }
+    }
+  });
+
+  return { ...rest, launches: kept.filter((l): l is Launch => l !== null), closedLaunchesDays: CLOSED_LAUNCHES_DAYS };
 }
 
 const DEFECT_COUNTS_IN_PARALLEL = 8;

@@ -16,9 +16,8 @@ services:
     restart: unless-stopped
     ports:
       - "${ANALYTICS_PORT:-8080}:8080"
-    # To keep settings across `down` / image upgrades, uncomment the volume.
-    # volumes:
-    #   - analytics-data:/app/data
+    volumes:
+      - analytics-data:/app/data
 
-# volumes:
-#   analytics-data:
+volumes:
+  analytics-data:
