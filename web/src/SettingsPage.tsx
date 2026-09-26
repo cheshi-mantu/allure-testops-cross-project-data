@@ -7,6 +7,7 @@ interface FormValues {
   token: string;
   launchesRefreshMin: number;
   defectsRefreshMin: number;
+  testCasesRefreshMin: number;
 }
 
 const toMin = (sec: number) => Math.round(sec / 60);
@@ -38,6 +39,7 @@ export function SettingsPage({ config, onSaved }: { config: PublicConfig; onSave
         token: v.token ?? "",
         launchesRefreshSec: (v.launchesRefreshMin ?? 0) * 60,
         defectsRefreshSec: (v.defectsRefreshMin ?? 0) * 60,
+        testCasesRefreshSec: (v.testCasesRefreshMin ?? 0) * 60,
       });
       form.setFieldValue("token", "");
       msg.success("Settings saved");
@@ -71,6 +73,7 @@ export function SettingsPage({ config, onSaved }: { config: PublicConfig; onSave
           token: "",
           launchesRefreshMin: toMin(config.launchesRefreshSec),
           defectsRefreshMin: toMin(config.defectsRefreshSec),
+          testCasesRefreshMin: toMin(config.testCasesRefreshSec),
         }}
       >
         <Form.Item
@@ -93,6 +96,9 @@ export function SettingsPage({ config, onSaved }: { config: PublicConfig; onSave
             <InputNumber min={0} max={1440} />
           </Form.Item>
           <Form.Item name="defectsRefreshMin" label="Defects auto refresh, min" rules={[refreshRule]} extra="0 turns it off">
+            <InputNumber min={0} max={1440} />
+          </Form.Item>
+          <Form.Item name="testCasesRefreshMin" label="Test cases auto refresh, min" rules={[refreshRule]} extra="0 turns it off">
             <InputNumber min={0} max={1440} />
           </Form.Item>
         </Space>

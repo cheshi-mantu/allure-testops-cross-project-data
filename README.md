@@ -4,6 +4,7 @@ A containerized React and Node.js application that reads the Allure TestOps REST
 
 - **Launches** of all projects as a "project → (creator) → launch" tree: all open launches, plus closed launches of the last 30 days that still have unresolved results. Each launch shows its state, result counts by status (passed, failed, broken, skipped, unknown, in progress), unresolved and muted result counts, and new / known defect counts. Launches can be filtered by state, tags, environment and part of the name, and by having not passed results (anything but passed and in progress), results in progress, unresolved results, defects or muted results; these flags combine with AND. The second grouping level, by creator, is turned on with a switch.
 - **Defects** of all projects as a tree with dynamic grouping by project, status, linked issue tracker task, creator and matcher regex. Levels follow the order in which they were selected. Defects can be filtered by status, creator, issue tracker task, name or ID, and by the text of their matcher regexes. Each defect shows its matchers and the number of affected test cases, test results and launches; groups show the sum over their defects.
+- **Test cases** of all projects as a tree whose structure the user defines: up to 6 grouping levels in any order, chosen from project, automation (automated or manual), layer, issue, tag, every member role (Owner, Lead and so on) and every custom field found in the data. Project is an ordinary level and can be left out. A test case with several values in a level (several issues, owners or custom field values) appears in each of their groups. Every group, and the total line, shows two counters: automated and manual test cases. Test cases can be filtered by part of the name or ID, project, tags, and by any of the grouping dimensions through **Add filter**; every filter must match, and inside one filter any selected value is enough. Groups start collapsed and top-level rows are paged, so large projects stay responsive.
 
 Launches can be sorted by name, ID and creation date, defects by name, ID and linked issue; sorting orders rows inside each group, groups keep their order, and empty values stay last. Table columns can be resized by dragging the right edge of a header; long content wraps inside its column. Widths are remembered per table in the browser, and **Reset column widths** restores the defaults.
 
@@ -49,7 +50,19 @@ Open http://localhost:8080. On the **Settings** tab, enter the Allure TestOps UR
 
 ## Settings storage
 
-The server writes the endpoint, token and refresh periods to `/app/data/config.json` inside the container. The file survives `docker restart` and `docker compose stop/start` and is gone together with the container: after `docker rm`, `docker compose down` or an image upgrade, the settings have to be entered again. `docker-compose.yml` mounts a named volume at `/app/data`, so there the settings outlive the container. The token is never sent back to the browser; the UI only sees its last 4 characters. Collected data is kept in the process memory.
+The server writes the endpoint, token and refresh periods to `/app/data/config.json` inside the container. The file survives `docker restart` and `docker compose stop/start` and is gone together with the container: after `docker rm`, `docker compose down` or an image upgrade, the settings have to be entered again. `docker-compose.yml` mounts a named volume at `/app/data`, so there the settings outlive the container. The token is never sent back to the browser; the UI only sees its last 4 characters. Launches and defects are kept in the process memory. Test cases are also cached in `/app/data/cache/` (see [Test case cache](#test-case-cache)).
+
+## Test case cache
+
+Loading the details of a test case takes one request, so the test case list is refreshed incrementally:
+
+- Every refresh lists all test cases (one request per 1000 test cases) and compares their modification dates with the cache.
+- Details are requested only for new test cases and those whose modification date changed. Test cases that disappeared are dropped.
+- A project that fails to list keeps its cached test cases.
+- Once a day, and with **Reload all details** on the Test cases tab, every test case is reloaded, which also picks up changes that do not move the modification date, such as a renamed custom field value.
+- The cache is kept in the data directory, so a restarted container continues from it. Changing the endpoint or token drops it.
+
+The Test cases tab shows what the last refresh did: how many details were loaded, taken from the cache or removed.
 
 ## Data refresh
 
@@ -70,6 +83,8 @@ The server writes the endpoint, token and refresh periods to `/app/data/config.j
 | Defects | `GET /api/rs/defect?projectId=…`. The `count` field holds the number of affected test cases |
 | Defect counters | `GET /api/rs/defect/{id}/testresult?size=1` and `GET /api/rs/defect/{id}/launch?size=1`, reading `totalElements` |
 | Defect matchers | `GET /api/rs/defect/{id}/matcher` |
+| Test cases | `GET /api/rs/testcase/__search?projectId=…&rql=true`, reading `id`, `name`, `lastModifiedDate` and `automated` |
+| Test case details | `GET /api/rs/testcase/{id}/overview`: layer, tags, issues, members, custom fields |
 
 Pages are requested 1000 items at a time. At most 8 requests to Allure TestOps run concurrently.
 
@@ -78,6 +93,7 @@ Pages are requested 1000 items at a time. At most 8 requests to Allure TestOps r
 - **Defect creator.** The Allure TestOps API does not return who created a defect. Matchers do have an author, so the author of the defect's earliest matcher is taken as the defect creator and marked "(matcher)" in the UI. This is an approximation: someone else may have added the matcher later. Defects without matchers stay under "(creator unknown)". If the server starts returning `createdBy` in the defect list, that value wins.
 - **Cost of launch details.** Unresolved and muted counts take a request each per launch, and open launches need one more for result counts. A closed launch without unresolved results is dropped after the first request.
 - **Cost of defect details.** Matchers, test results and launches take three requests per defect. On an instance with thousands of defects a crawl takes noticeable time, so defect auto refresh is off by default.
+- **Cost of test case details.** The first load requests details for every test case, one request each; later refreshes only for new and changed ones.
 - **Access to the application.** The application itself has no authentication: anyone who opens the page sees the data and can change the settings. Expose it on an internal network only.
 - The application sees only the projects the token owner has access to.
 

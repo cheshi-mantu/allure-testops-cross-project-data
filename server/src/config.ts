@@ -10,6 +10,8 @@ export interface AppConfig {
   launchesRefreshSec: number;
   /** Auto refresh period for defects, seconds. 0 disables auto refresh. */
   defectsRefreshSec: number;
+  /** Auto refresh period for test cases, seconds. 0 disables auto refresh. */
+  testCasesRefreshSec: number;
 }
 
 /** What the UI is allowed to see: the token never leaves the container. */
@@ -19,6 +21,7 @@ export interface PublicConfig {
   tokenHint: string;
   launchesRefreshSec: number;
   defectsRefreshSec: number;
+  testCasesRefreshSec: number;
   minRefreshSec: number;
 }
 
@@ -27,6 +30,7 @@ const DEFAULTS: AppConfig = {
   token: "",
   launchesRefreshSec: 300,
   defectsRefreshSec: 0,
+  testCasesRefreshSec: 0,
 };
 
 // The file lives in the container's writable layer: it survives a container
@@ -80,6 +84,7 @@ export function toPublic(cfg: AppConfig): PublicConfig {
     tokenHint: cfg.token ? `…${cfg.token.slice(-4)}` : "",
     launchesRefreshSec: cfg.launchesRefreshSec,
     defectsRefreshSec: cfg.defectsRefreshSec,
+    testCasesRefreshSec: cfg.testCasesRefreshSec,
     minRefreshSec: MIN_REFRESH_SEC,
   };
 }

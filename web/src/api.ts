@@ -4,6 +4,7 @@ export interface PublicConfig {
   tokenHint: string;
   launchesRefreshSec: number;
   defectsRefreshSec: number;
+  testCasesRefreshSec: number;
   minRefreshSec: number;
 }
 
@@ -13,6 +14,7 @@ export interface ConfigInput {
   token: string;
   launchesRefreshSec: number;
   defectsRefreshSec: number;
+  testCasesRefreshSec: number;
 }
 
 export interface Snapshot<T> {
@@ -106,6 +108,31 @@ export interface DefectsData {
   failedProjects: { id: number; error: string }[];
 }
 
+export interface TestCase {
+  id: number;
+  name: string;
+  projectId: number;
+  /** false when the details could not be loaded; only id and name are known then. */
+  detailed: boolean;
+  modified: number | null;
+  /** null when unknown. */
+  automated: boolean | null;
+  layer: string | null;
+  tags: string[];
+  issues: Issue[];
+  members: { role: string; name: string }[];
+  customFields: { name: string; values: string[] }[];
+}
+
+export interface TestCasesData {
+  endpoint: string;
+  projects: Project[];
+  failedProjects: { id: number; error: string }[];
+  testCases: TestCase[];
+  /** What the last crawl did: details loaded anew versus taken from the cache. */
+  sync: { full: boolean; loaded: number; reused: number; removed: number; fullReloadAt: number };
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -138,4 +165,7 @@ export const api = {
   refreshLaunches: () => call<Snapshot<LaunchesData>>("POST", "/api/launches/refresh"),
   defects: () => call<Snapshot<DefectsData>>("GET", "/api/defects"),
   refreshDefects: () => call<Snapshot<DefectsData>>("POST", "/api/defects/refresh"),
+  testCases: () => call<Snapshot<TestCasesData>>("GET", "/api/testcases"),
+  refreshTestCases: () => call<Snapshot<TestCasesData>>("POST", "/api/testcases/refresh"),
+  reloadAllTestCases: () => call<Snapshot<TestCasesData>>("POST", "/api/testcases/refresh?full=true"),
 };
