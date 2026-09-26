@@ -53,6 +53,11 @@ export class Dataset<T> {
     this.inFlight = null;
   }
 
+  /** Changes the cached data in place, e.g. after a write to Allure TestOps. */
+  update(fn: (data: T) => void): void {
+    if (this.data) fn(this.data);
+  }
+
   /** Never waits for a crawl: the UI polls while `refreshing` is true. */
   read(): Snapshot<T> {
     if (this.startedAt === null || (!this.inFlight && this.autoRefreshDue())) {

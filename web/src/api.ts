@@ -133,6 +133,63 @@ export interface TestCasesData {
   sync: { full: boolean; loaded: number; reused: number; removed: number; fullReloadAt: number };
 }
 
+/** [time, "a" for automated or "d" for deleted, 1 or 0] */
+export type HistoryEvent = [number, "a" | "d", 0 | 1];
+
+export interface TestCaseHistory {
+  id: number;
+  projectId: number;
+  created: number | null;
+  /** Automation state before the first recorded change; null when unknown. */
+  initial: 0 | 1 | null;
+  events: HistoryEvent[];
+}
+
+export interface HistoryData {
+  endpoint: string;
+  projects: Project[];
+  failedProjects: { id: number; error: string }[];
+  testCases: TestCaseHistory[];
+  sync: { changeLogsLoaded: number; changeLogsPending: number; changeLogsFailed: number; disappeared: number };
+}
+
+export interface Named {
+  id: number;
+  name: string;
+}
+
+export interface RunTestCase {
+  id: number;
+  name: string;
+  projectId: number;
+  automated: boolean | null;
+  created: number | null;
+  status: (Named & { color: string | null }) | null;
+  workflow: Named | null;
+  /** Date of the latest launch in the lookback window with a finished result; null when none. */
+  lastRun: number | null;
+  /** false: never ran; true: ran, maybe before the window; null: not known yet. */
+  everRun: boolean | null;
+}
+
+export interface RunsData {
+  endpoint: string;
+  projects: Project[];
+  failedProjects: { id: number; error: string }[];
+  lookbackDays: number;
+  testCases: RunTestCase[];
+  sync: { launchesRead: number; neverRunChecked: number };
+}
+
+export interface WorkflowInfo extends Named {
+  statuses: (Named & { color: string | null })[];
+}
+
+export interface ApplyResponse {
+  results: { projectId: number; count: number; error: string | null }[];
+  unknownIds: number[];
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -167,5 +224,12 @@ export const api = {
   refreshDefects: () => call<Snapshot<DefectsData>>("POST", "/api/defects/refresh"),
   testCases: () => call<Snapshot<TestCasesData>>("GET", "/api/testcases"),
   refreshTestCases: () => call<Snapshot<TestCasesData>>("POST", "/api/testcases/refresh"),
+  runs: () => call<Snapshot<RunsData>>("GET", "/api/runs"),
+  refreshRuns: () => call<Snapshot<RunsData>>("POST", "/api/runs/refresh"),
+  workflows: () => call<WorkflowInfo[]>("GET", "/api/workflows"),
+  applyStatus: (testCaseIds: number[], workflowId: number, statusId: number) =>
+    call<ApplyResponse>("POST", "/api/runs/status", { testCaseIds, workflowId, statusId }),
+  history: () => call<Snapshot<HistoryData>>("GET", "/api/history"),
+  refreshHistory: () => call<Snapshot<HistoryData>>("POST", "/api/history/refresh"),
   reloadAllTestCases: () => call<Snapshot<TestCasesData>>("POST", "/api/testcases/refresh?full=true"),
 };

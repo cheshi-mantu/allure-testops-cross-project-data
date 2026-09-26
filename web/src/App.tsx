@@ -1,12 +1,17 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Alert, Layout, Spin, Tabs, Typography } from "antd";
 import { api, type PublicConfig } from "./api";
 import { DefectsPage } from "./DefectsPage";
+import { OutdatedPage } from "./OutdatedPage";
 import { LaunchesPage } from "./LaunchesPage";
 import { SettingsPage } from "./SettingsPage";
 import { TestCasesPage } from "./TestCasesPage";
 
-type TabKey = "launches" | "defects" | "testcases" | "settings";
+// The chart library is loaded only when the map tab is opened.
+const TestCaseMapPage = lazy(() => import("./TestCaseMapPage").then((m) => ({ default: m.TestCaseMapPage })));
+const TrendPage = lazy(() => import("./TrendPage").then((m) => ({ default: m.TrendPage })));
+
+type TabKey = "launches" | "defects" | "testcases" | "testcasemap" | "trend" | "outdated" | "settings";
 
 export function App() {
   const [config, setConfig] = useState<PublicConfig | null>(null);
@@ -70,6 +75,32 @@ export function App() {
                 label: "Test cases",
                 disabled: !configured,
                 children: configured && <TestCasesPage key={generation} />,
+              },
+              {
+                key: "testcasemap",
+                label: "Test case map",
+                disabled: !configured,
+                children: configured && (
+                  <Suspense fallback={<Spin style={{ marginTop: 48, width: "100%" }} />}>
+                    <TestCaseMapPage key={generation} />
+                  </Suspense>
+                ),
+              },
+              {
+                key: "trend",
+                label: "Automation trend",
+                disabled: !configured,
+                children: configured && (
+                  <Suspense fallback={<Spin style={{ marginTop: 48, width: "100%" }} />}>
+                    <TrendPage key={generation} />
+                  </Suspense>
+                ),
+              },
+              {
+                key: "outdated",
+                label: "Outdated",
+                disabled: !configured,
+                children: configured && <OutdatedPage key={generation} />,
               },
               {
                 key: "settings",
