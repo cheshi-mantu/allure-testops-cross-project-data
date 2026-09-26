@@ -209,7 +209,7 @@ export function LaunchesPage() {
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-      <RefreshBar snapshot={snapshot} error={error} onRefresh={requestRefresh} />
+      <RefreshBar snapshot={snapshot} error={error} onRefresh={() => requestRefresh()} />
       <Card size="small">
         <Space wrap size="middle" align="center">
           <Input.Search allowClear placeholder="Part of launch name" style={{ width: 240 }} value={name} onChange={(e) => setName(e.target.value)} />

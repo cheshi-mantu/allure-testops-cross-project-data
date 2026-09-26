@@ -74,6 +74,41 @@ for (const p of projects) {
   }
 }
 
+const layers = ["UI", "API", "Unit", null];
+const features = ["Cart", "Checkout", "Login", "Search"];
+let testCases = [];
+for (const p of projects) {
+  for (let i = 0; i < 40; i++) {
+    const id = 1000 + p.id * 100 + i;
+    const layer = layers[i % 4];
+    testCases.push({
+      id,
+      projectId: p.id,
+      name: `${p.name}: ${features[i % 4]} scenario ${i}`,
+      lastModifiedDate: Date.now() - i * 60_000,
+      automated: i % 3 !== 0,
+      layer: layer && { id: i % 4, name: layer },
+      tags: [{ id: i % 4, name: tagNames[i % 4] }],
+      issues: i % 3 === 0 ? [{ id, name: `JIRA-${100 + (i % 7)}`, url: `https://jira.example.com/browse/JIRA-${100 + (i % 7)}` }] : null,
+      members: [
+        { id: 1, name: users[i % 3], role: { id: 1, name: "Owner" } },
+        ...(i % 4 === 0 ? [{ id: 2, name: users[(i + 1) % 3], role: { id: 2, name: "Lead" } }] : []),
+      ],
+      customFields: [
+        { id: i % 4, name: features[i % 4], customField: { id: 1, name: "Feature" } },
+        ...(i % 5 === 0 ? [] : [{ id: 10 + (i % 2), name: i % 2 ? "High" : "Low", customField: { id: 2, name: "Priority" } }]),
+        ...(i % 6 === 0
+          ? [
+              { id: 20, name: "web", customField: { id: 3, name: "Platform" } },
+              { id: 21, name: "mobile", customField: { id: 3, name: "Platform" } },
+            ]
+          : []),
+      ],
+    });
+  }
+}
+let overviewRequests = 0;
+
 const page = (items, url) => {
   const n = Number(url.searchParams.get("page") ?? 0);
   const size = Number(url.searchParams.get("size") ?? 10);
@@ -99,6 +134,18 @@ createServer((req, res) => {
     });
     return;
   }
+  // Mock controls, no auth: POST /mock/testcase/{id}/touch or /delete, GET /mock/stats.
+  let c;
+  if ((c = url.pathname.match(/^\/mock\/testcase\/(\d+)\/(touch|delete)$/))) {
+    const t = testCases.find((x) => x.id === Number(c[1]));
+    if (c[2] === "touch" && t) {
+      t.lastModifiedDate = Date.now();
+      t.tags = [...t.tags, { id: 99, name: "touched" }];
+    }
+    if (c[2] === "delete") testCases = testCases.filter((x) => x.id !== Number(c[1]));
+    return send(200, { ok: Boolean(t) });
+  }
+  if (url.pathname === "/mock/stats") return send(200, { overviewRequests });
   if (req.headers.authorization !== `Bearer ${JWT}`) return send(401, { message: "Unauthorized" });
   const path = url.pathname.replace(/^\/api\/rs\//, "/api/");
   const projectId = Number(url.searchParams.get("projectId"));
@@ -118,6 +165,15 @@ createServer((req, res) => {
     const l = launches.find((x) => x.id === Number(m[1]));
     if (m[2] === "statistic") return send(200, l.statistic);
     return send(200, { content: [], totalElements: l[m[2]], totalPages: l[m[2]], last: false });
+  }
+  if (path === "/api/testcase/__search") {
+    const rows = testCases.filter((t) => t.projectId === projectId).map(({ id, name, lastModifiedDate, automated }) => ({ id, name, lastModifiedDate, automated }));
+    return send(200, page(rows, url));
+  }
+  if ((m = path.match(/^\/api\/testcase\/(\d+)\/overview$/))) {
+    overviewRequests++;
+    const t = testCases.find((x) => x.id === Number(m[1]));
+    return t ? send(200, t) : send(404, { message: "Not found" });
   }
   if (path === "/api/defect") {
     return send(200, page(defects.filter((d) => d.projectId === projectId).map(({ projectId, matchers, ...d }) => d), url));

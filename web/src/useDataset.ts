@@ -43,9 +43,10 @@ export function useDataset<T>(read: () => Promise<Snapshot<T>>, refresh: () => P
     return () => window.clearTimeout(timer.current);
   }, []);
 
-  const requestRefresh = useCallback(async () => {
+  /** `how` replaces the default refresh call, e.g. with a full reload. */
+  const requestRefresh = useCallback(async (how: () => Promise<Snapshot<T>> = refresh) => {
     try {
-      apply(await refresh());
+      apply(await how());
     } catch (e) {
       if (e instanceof ApiError && e.status === 429) {
         setError(`Refresh is allowed once a minute, retry in ${e.retryAfterSec ?? 60}s`);

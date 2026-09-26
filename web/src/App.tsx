@@ -4,8 +4,9 @@ import { api, type PublicConfig } from "./api";
 import { DefectsPage } from "./DefectsPage";
 import { LaunchesPage } from "./LaunchesPage";
 import { SettingsPage } from "./SettingsPage";
+import { TestCasesPage } from "./TestCasesPage";
 
-type TabKey = "launches" | "defects" | "settings";
+type TabKey = "launches" | "defects" | "testcases" | "settings";
 
 export function App() {
   const [config, setConfig] = useState<PublicConfig | null>(null);
@@ -63,6 +64,12 @@ export function App() {
                 label: "Defects",
                 disabled: !configured,
                 children: configured && <DefectsPage key={generation} />,
+              },
+              {
+                key: "testcases",
+                label: "Test cases",
+                disabled: !configured,
+                children: configured && <TestCasesPage key={generation} />,
               },
               {
                 key: "settings",

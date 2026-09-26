@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { collectDefects, collectLaunches } from "./collect.js";
+import { collectTestCases, dropTestCaseCache, requestFullReload } from "./testcases.js";
 import {
   getConfig,
   isConfigured,
@@ -23,6 +24,7 @@ function currentClient(): TestOpsClient {
 
 const launches = new Dataset((report) => collectLaunches(currentClient(), report), () => getConfig().launchesRefreshSec);
 const defects = new Dataset((report) => collectDefects(currentClient(), report), () => getConfig().defectsRefreshSec);
+const testCases = new Dataset((report) => collectTestCases(currentClient(), report), () => getConfig().testCasesRefreshSec);
 
 class HttpError extends Error {
   constructor(
@@ -81,11 +83,14 @@ app.put("/api/config", async (req, res) => {
     token,
     launchesRefreshSec: normalizeRefresh(body.launchesRefreshSec, prev.launchesRefreshSec),
     defectsRefreshSec: normalizeRefresh(body.defectsRefreshSec, prev.defectsRefreshSec),
+    testCasesRefreshSec: normalizeRefresh(body.testCasesRefreshSec, prev.testCasesRefreshSec),
   });
   if (connectionChanged) {
     client = null;
     launches.reset();
     defects.reset();
+    testCases.reset();
+    dropTestCaseCache();
   }
   res.json(toPublic(getConfig()));
 });
@@ -108,6 +113,23 @@ app.get("/api/defects", (_req, res) => {
 app.post("/api/defects/refresh", (_req, res) => {
   requireConfigured();
   res.json(defects.refresh());
+});
+
+app.get("/api/testcases", (_req, res) => {
+  requireConfigured();
+  res.json(testCases.read());
+});
+
+app.post("/api/testcases/refresh", (req, res) => {
+  requireConfigured();
+  const full = req.query.full === "true";
+  if (full) requestFullReload();
+  try {
+    res.json(testCases.refresh());
+  } catch (e) {
+    if (full) requestFullReload(false);
+    throw e;
+  }
 });
 
 app.get("/api/health", (_req, res) => {

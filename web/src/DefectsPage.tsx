@@ -309,7 +309,7 @@ export function DefectsPage() {
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-      <RefreshBar snapshot={snapshot} error={error} onRefresh={requestRefresh} />
+      <RefreshBar snapshot={snapshot} error={error} onRefresh={() => requestRefresh()} />
       <Card size="small">
         <Space orientation="vertical" style={{ width: "100%" }}>
           <Space wrap align="center">
