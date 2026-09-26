@@ -74,3 +74,26 @@ export function buildTree<T>(
 export function groupKeys<T>(rows: TreeRow<T>[]): string[] {
   return rows.flatMap((r) => (r.kind === "group" ? [r.key, ...groupKeys(r.children)] : []));
 }
+
+type SortValue = string | number | null;
+
+const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+
+/**
+ * Column sorter for tree rows: items are compared by `value`, groups keep
+ * their own order, and empty values stay last in both directions.
+ */
+export function itemSorter<T>(value: (item: T) => SortValue) {
+  return (a: TreeRow<T>, b: TreeRow<T>, order?: "ascend" | "descend" | null) => {
+    if (a.kind !== "item" || b.kind !== "item") return 0;
+    const x = value(a.item);
+    const y = value(b.item);
+    if (x === null || y === null) {
+      if (x === y) return 0;
+      const last = x === null ? 1 : -1;
+      return order === "descend" ? -last : last;
+    }
+    if (typeof x === "number" && typeof y === "number") return x - y;
+    return collator.compare(String(x), String(y));
+  };
+}

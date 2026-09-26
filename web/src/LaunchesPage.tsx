@@ -5,7 +5,7 @@ import { api, type Launch, type LaunchesData } from "./api";
 import { countOrUnknown, hasFlag, LAUNCH_FLAGS, StatusCounts, StatusLegend, type LaunchFlag } from "./launchResults";
 import { RefreshBar } from "./RefreshBar";
 import { TreeCell } from "./TreeCell";
-import { buildTree, type Grouper, type TreeRow } from "./tree";
+import { buildTree, itemSorter, type Grouper, type TreeRow } from "./tree";
 import { useDataset } from "./useDataset";
 import { resizableComponents, useColumnWidths } from "./useColumnWidths";
 import { useExpanded } from "./useExpanded";
@@ -98,6 +98,8 @@ export function LaunchesPage() {
       title: "Launch",
       key: "name",
       width: 320,
+      sorter: itemSorter((l) => l.name),
+      sortDirections: ["ascend", "descend"],
       onCell: (r) => ({ colSpan: r.kind === "group" ? COLUMN_COUNT : 1 }),
       render: (_, r) => (
         <TreeCell row={r} expanded={expandedSet.has(r.key)} onToggle={() => onExpand(!expandedSet.has(r.key), r)}>
@@ -120,7 +122,15 @@ export function LaunchesPage() {
         </TreeCell>
       ),
     },
-    { title: "ID", key: "id", width: 90, onCell: groupSpan, render: (_, r) => (r.kind === "item" ? r.item.id : null) },
+    {
+      title: "ID",
+      key: "id",
+      width: 90,
+      sorter: itemSorter((l) => l.id),
+      sortDirections: ["ascend", "descend"],
+      onCell: groupSpan,
+      render: (_, r) => (r.kind === "item" ? r.item.id : null),
+    },
     {
       title: "State",
       key: "state",
@@ -184,7 +194,15 @@ export function LaunchesPage() {
         )),
     },
     { title: "Creator", key: "author", width: 160, onCell: groupSpan, render: (_, r) => (r.kind === "item" ? r.item.createdBy : null) },
-    { title: "Created", key: "created", width: 170, onCell: groupSpan, render: (_, r) => (r.kind === "item" ? dateTime(r.item.createdDate) : null) },
+    {
+      title: "Created",
+      key: "created",
+      width: 170,
+      sorter: itemSorter((l) => l.createdDate),
+      sortDirections: ["ascend", "descend"],
+      onCell: groupSpan,
+      render: (_, r) => (r.kind === "item" ? dateTime(r.item.createdDate) : null),
+    },
   ];
 
   const sized = useColumnWidths("launches", columns);
