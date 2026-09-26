@@ -5,7 +5,7 @@ import { api, type Defect, type DefectMatcher, type DefectsData } from "./api";
 import { isActive, matcherKey, matcherLabel, selectedMatchers, sharedKeys, type RegexFilter, type RegexScope } from "./matchers";
 import { RefreshBar } from "./RefreshBar";
 import { TreeCell } from "./TreeCell";
-import { buildTree, type Grouper, type TreeRow } from "./tree";
+import { buildTree, itemSorter, type Grouper, type TreeRow } from "./tree";
 import { useDataset } from "./useDataset";
 import { resizableComponents, useColumnWidths } from "./useColumnWidths";
 import { useExpanded } from "./useExpanded";
@@ -213,6 +213,8 @@ export function DefectsPage() {
       title: "Defect",
       key: "name",
       width: 320,
+      sorter: itemSorter((d) => d.name),
+      sortDirections: ["ascend", "descend"],
       onCell: (r) => ({ colSpan: r.kind === "group" ? 6 : 1 }),
       render: (_, r) => (
         <TreeCell row={r} expanded={expandedSet.has(r.key)} onToggle={() => onExpand(!expandedSet.has(r.key), r)}>
@@ -241,7 +243,15 @@ export function DefectsPage() {
         </TreeCell>
       ),
     },
-    { title: "ID", key: "id", width: 80, onCell: groupSpan, render: (_, r) => (r.kind === "item" ? r.item.id : null) },
+    {
+      title: "ID",
+      key: "id",
+      width: 80,
+      sorter: itemSorter((d) => d.id),
+      sortDirections: ["ascend", "descend"],
+      onCell: groupSpan,
+      render: (_, r) => (r.kind === "item" ? r.item.id : null),
+    },
     {
       title: "Status",
       key: "status",
@@ -252,6 +262,8 @@ export function DefectsPage() {
     {
       title: "Issue",
       key: "issue",
+      sorter: itemSorter((d) => d.issues[0]?.name ?? null),
+      sortDirections: ["ascend", "descend"],
       width: 160,
       onCell: groupSpan,
       render: (_, r) =>
