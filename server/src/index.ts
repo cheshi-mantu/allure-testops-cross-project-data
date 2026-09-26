@@ -6,7 +6,7 @@ import { clearDatabase, loadSnapshot, saveSnapshot } from "./db.js";
 import { collectHistory, type HistoryData } from "./history.js";
 import { applyStatus, collectRuns, workflows, type RunsData } from "./runs.js";
 import { collectTestCases, requestFullReload, type TestCasesData } from "./testcases.js";
-import { getConfig, isConfigured, normalizeEndpoint, normalizeRefresh, saveConfig, toPublic } from "./config.js";
+import { getConfig, isConfigured, normalizeEndpoint, normalizeRefresh, REFRESH_KEYS, saveConfig, toPublic, type RefreshKey } from "./config.js";
 import { Dataset, ThrottledError, type SnapshotStore } from "./dataset.js";
 import { TestOpsClient, TestOpsError } from "./testops.js";
 
@@ -43,12 +43,12 @@ const testCases = new Dataset(
 );
 const runs = new Dataset(
   (report) => collectRuns(currentClient(), report),
-  () => getConfig().testCasesRefreshSec,
+  () => getConfig().runsRefreshSec,
   stored<RunsData>("runs"),
 );
 const history = new Dataset(
   (report) => collectHistory(currentClient(), report),
-  () => getConfig().testCasesRefreshSec,
+  () => getConfig().historyRefreshSec,
   stored<HistoryData>("history"),
 );
 
@@ -107,9 +107,7 @@ app.put("/api/config", async (req, res) => {
   saveConfig({
     endpoint,
     token,
-    launchesRefreshSec: normalizeRefresh(body.launchesRefreshSec, prev.launchesRefreshSec),
-    defectsRefreshSec: normalizeRefresh(body.defectsRefreshSec, prev.defectsRefreshSec),
-    testCasesRefreshSec: normalizeRefresh(body.testCasesRefreshSec, prev.testCasesRefreshSec),
+    ...(Object.fromEntries(REFRESH_KEYS.map((k) => [k, normalizeRefresh(body[k], prev[k])])) as Record<RefreshKey, number>),
   });
   if (connectionChanged) {
     client = null;

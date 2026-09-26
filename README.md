@@ -72,7 +72,7 @@ The automation trend is rebuilt from test case change logs and kept in the datab
 - The first refresh loads the change log of every test case, deleted ones included: one request per test case, once.
 - Later refreshes list test cases (active and deleted, one request per 1000) and load the change log again only for test cases whose automation or deletion state differs from the stored one, plus new test cases.
 - A test case that disappears from both lists was deleted for good; it is counted as deleted from the moment the application noticed it, since its change log is gone too.
-- History uses the test cases refresh period.
+- History has its own auto refresh period (Automation trend in Settings).
 
 Before the first entry of its change log a test case is taken to be in its first recorded state. Test cases deleted for good before the application started tracking them are not in the history.
 
@@ -83,7 +83,7 @@ The Outdated tab needs to know when each test case last ran. It is worked out fr
 - Launches created in the last 90 days are listed per project. For each launch the IDs of test cases with a finished result are read, and each of those test cases gets the launch's creation date as its last run.
 - A closed launch is read once; open launches are read again on every refresh, since results can still be added to them.
 - A test case not seen in these launches is checked once for any finished result at all, in chunks of test cases; a chunk with results is split until each test case is known. It is then either "ran more than 90 days ago" or "never ran".
-- The data uses the test cases refresh period.
+- The data has its own auto refresh period (Outdated in Settings).
 
 Setting a status calls `POST /api/rs/testcase/bulk/status/set` with the selected test case IDs, the workflow and the status; the status must belong to the chosen workflow. The token owner needs write access to the project. Note that automated uploads can later set workflow and status of a test case back to their defaults, for example when a trashed test case is uploaded again.
 
@@ -104,7 +104,7 @@ The Test cases tab shows what the last refresh did: how many details were loaded
 - The server caches the result of crawling Allure TestOps. The browser only polls this cache.
 - Auto refresh is lazy: a new crawl starts when someone has the page open and the configured period has passed. Nobody watching means no load on Allure TestOps.
 - Any crawl, automatic or manual, starts at most once per 60 seconds. The limit is enforced on the server: an early `POST /api/*/refresh` gets `429` with `Retry-After`.
-- Launches and defects are refreshed independently, each with its own period. 0 disables auto refresh.
+- Every tab has its own auto refresh period in Settings: Launches, Defects, Test cases (shared with Test case map), Automation trend and Outdated. 0 disables auto refresh for that tab; the Refresh button still works. By default only Launches refresh automatically, every 5 minutes.
 
 ## Requests sent to Allure TestOps
 

@@ -1,14 +1,12 @@
 import { useState } from "react";
 import { Alert, Button, Card, Form, Input, InputNumber, Space, Typography, message } from "antd";
-import { api, type PublicConfig } from "./api";
+import { api, REFRESH_SETTINGS, type PublicConfig, type RefreshKey } from "./api";
 
-interface FormValues {
+/** Refresh periods are edited in minutes. */
+type FormValues = Record<RefreshKey, number> & {
   endpoint: string;
   token: string;
-  launchesRefreshMin: number;
-  defectsRefreshMin: number;
-  testCasesRefreshMin: number;
-}
+};
 
 const toMin = (sec: number) => Math.round(sec / 60);
 
@@ -34,13 +32,8 @@ export function SettingsPage({ config, onSaved }: { config: PublicConfig; onSave
   const save = async (v: FormValues) => {
     setBusy("save");
     try {
-      const saved = await api.saveConfig({
-        endpoint: v.endpoint,
-        token: v.token ?? "",
-        launchesRefreshSec: (v.launchesRefreshMin ?? 0) * 60,
-        defectsRefreshSec: (v.defectsRefreshMin ?? 0) * 60,
-        testCasesRefreshSec: (v.testCasesRefreshMin ?? 0) * 60,
-      });
+      const periods = Object.fromEntries(REFRESH_SETTINGS.map(({ key }) => [key, (v[key] ?? 0) * 60])) as Record<RefreshKey, number>;
+      const saved = await api.saveConfig({ endpoint: v.endpoint, token: v.token ?? "", ...periods });
       form.setFieldValue("token", "");
       msg.success("Settings saved");
       onSaved(saved);
@@ -71,9 +64,7 @@ export function SettingsPage({ config, onSaved }: { config: PublicConfig; onSave
         initialValues={{
           endpoint: config.endpoint,
           token: "",
-          launchesRefreshMin: toMin(config.launchesRefreshSec),
-          defectsRefreshMin: toMin(config.defectsRefreshSec),
-          testCasesRefreshMin: toMin(config.testCasesRefreshSec),
+          ...Object.fromEntries(REFRESH_SETTINGS.map(({ key }) => [key, toMin(config[key])])),
         }}
       >
         <Form.Item
@@ -91,20 +82,18 @@ export function SettingsPage({ config, onSaved }: { config: PublicConfig; onSave
         >
           <Input.Password placeholder={config.tokenSet ? "••••••••" : ""} autoComplete="off" />
         </Form.Item>
-        <Space size="large" wrap>
-          <Form.Item name="launchesRefreshMin" label="Launches auto refresh, min" rules={[refreshRule]} extra="0 turns it off">
-            <InputNumber min={0} max={1440} />
-          </Form.Item>
-          <Form.Item name="defectsRefreshMin" label="Defects auto refresh, min" rules={[refreshRule]} extra="0 turns it off">
-            <InputNumber min={0} max={1440} />
-          </Form.Item>
-          <Form.Item name="testCasesRefreshMin" label="Test cases auto refresh, min" rules={[refreshRule]} extra="0 turns it off">
-            <InputNumber min={0} max={1440} />
-          </Form.Item>
-        </Space>
+        <Typography.Title level={5}>Auto refresh, minutes</Typography.Title>
         <Typography.Paragraph type="secondary">
-          Any refresh, automatic or manual, runs at most once per {minMin} min.
+          Per tab; 0 turns auto refresh off, leaving the Refresh button. Any refresh, automatic or manual, runs at most once per {minMin} min,
+          and only while someone has the application open.
         </Typography.Paragraph>
+        <Space size="large" wrap>
+          {REFRESH_SETTINGS.map(({ key, label }) => (
+            <Form.Item key={key} name={key} label={label} rules={[refreshRule]}>
+              <InputNumber min={0} max={1440} addonAfter="min" style={{ width: 130 }} />
+            </Form.Item>
+          ))}
+        </Space>
         <Space>
           <Button onClick={test} loading={busy === "test"}>
             Test connection
