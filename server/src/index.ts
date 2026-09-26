@@ -1,23 +1,24 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { collectDefects, collectLaunches } from "./collect.js";
-import { clearDatabase } from "./db.js";
-import { collectHistory } from "./history.js";
-import { applyStatus, collectRuns, workflows } from "./runs.js";
-import { collectTestCases, dropTestCaseCache, requestFullReload } from "./testcases.js";
-import {
-  getConfig,
-  isConfigured,
-  normalizeEndpoint,
-  normalizeRefresh,
-  saveConfig,
-  toPublic,
-} from "./config.js";
-import { Dataset, ThrottledError } from "./dataset.js";
+import { collectDefects, collectLaunches, type DefectsData, type LaunchesData } from "./collect.js";
+import { clearDatabase, loadSnapshot, saveSnapshot } from "./db.js";
+import { collectHistory, type HistoryData } from "./history.js";
+import { applyStatus, collectRuns, workflows, type RunsData } from "./runs.js";
+import { collectTestCases, requestFullReload, type TestCasesData } from "./testcases.js";
+import { getConfig, isConfigured, normalizeEndpoint, normalizeRefresh, REFRESH_KEYS, saveConfig, toPublic, type RefreshKey } from "./config.js";
+import { Dataset, ThrottledError, type SnapshotStore } from "./dataset.js";
 import { TestOpsClient, TestOpsError } from "./testops.js";
 
 let client: TestOpsClient | null = null;
+
+/** Datasets keep their last result in the database of the current instance. */
+function stored<T>(name: string): SnapshotStore<T> {
+  return {
+    load: () => loadSnapshot<T>(getConfig().endpoint, name),
+    save: (data, fetchedAt) => saveSnapshot(getConfig().endpoint, name, data, fetchedAt),
+  };
+}
 
 function currentClient(): TestOpsClient {
   const cfg = getConfig();
@@ -25,11 +26,31 @@ function currentClient(): TestOpsClient {
   return client;
 }
 
-const launches = new Dataset((report) => collectLaunches(currentClient(), report), () => getConfig().launchesRefreshSec);
-const defects = new Dataset((report) => collectDefects(currentClient(), report), () => getConfig().defectsRefreshSec);
-const testCases = new Dataset((report) => collectTestCases(currentClient(), report), () => getConfig().testCasesRefreshSec);
-const runs = new Dataset((report) => collectRuns(currentClient(), report), () => getConfig().testCasesRefreshSec);
-const history = new Dataset((report) => collectHistory(currentClient(), report), () => getConfig().testCasesRefreshSec);
+const launches = new Dataset(
+  (report) => collectLaunches(currentClient(), report),
+  () => getConfig().launchesRefreshSec,
+  stored<LaunchesData>("launches"),
+);
+const defects = new Dataset(
+  (report) => collectDefects(currentClient(), report),
+  () => getConfig().defectsRefreshSec,
+  stored<DefectsData>("defects"),
+);
+const testCases = new Dataset(
+  (report) => collectTestCases(currentClient(), report),
+  () => getConfig().testCasesRefreshSec,
+  stored<TestCasesData>("testcases"),
+);
+const runs = new Dataset(
+  (report) => collectRuns(currentClient(), report),
+  () => getConfig().runsRefreshSec,
+  stored<RunsData>("runs"),
+);
+const history = new Dataset(
+  (report) => collectHistory(currentClient(), report),
+  () => getConfig().historyRefreshSec,
+  stored<HistoryData>("history"),
+);
 
 class HttpError extends Error {
   constructor(
@@ -86,16 +107,13 @@ app.put("/api/config", async (req, res) => {
   saveConfig({
     endpoint,
     token,
-    launchesRefreshSec: normalizeRefresh(body.launchesRefreshSec, prev.launchesRefreshSec),
-    defectsRefreshSec: normalizeRefresh(body.defectsRefreshSec, prev.defectsRefreshSec),
-    testCasesRefreshSec: normalizeRefresh(body.testCasesRefreshSec, prev.testCasesRefreshSec),
+    ...(Object.fromEntries(REFRESH_KEYS.map((k) => [k, normalizeRefresh(body[k], prev[k])])) as Record<RefreshKey, number>),
   });
   if (connectionChanged) {
     client = null;
     launches.reset();
     defects.reset();
     testCases.reset();
-    dropTestCaseCache();
     history.reset();
     runs.reset();
     clearDatabase();

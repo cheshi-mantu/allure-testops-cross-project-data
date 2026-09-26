@@ -53,16 +53,26 @@ Open http://localhost:8080. On the **Settings** tab, enter the Allure TestOps UR
 
 ## Settings storage
 
-The server writes the endpoint, token and refresh periods to `/app/data/config.json` inside the container. The file survives `docker restart` and `docker compose stop/start` and is gone together with the container: after `docker rm`, `docker compose down` or an image upgrade, the settings have to be entered again. `docker-compose.yml` mounts a named volume at `/app/data`, so there the settings outlive the container. The token is never sent back to the browser; the UI only sees its last 4 characters. Launches and defects are kept in the process memory. Test cases are also cached in `/app/data/cache/` (see [Test case cache](#test-case-cache)), and the automation history is kept in `/app/data/history.db` (see [Automation history](#automation-history)).
+The server writes the endpoint, token and refresh periods to `/app/data/config.json` inside the container. The file survives `docker restart` and `docker compose stop/start` and is gone together with the container: after `docker rm`, `docker compose down` or an image upgrade, the settings have to be entered again. `docker-compose.yml` mounts a named volume at `/app/data`, so there the settings outlive the container. The token is never sent back to the browser; the UI only sees its last 4 characters. Everything the application collects is kept in `/app/data/data.db` (see [Data storage](#data-storage)).
+
+## Data storage
+
+Collected data lives in one SQLite database, `/app/data/data.db`, using Node's built-in `node:sqlite` (no extra dependencies):
+
+- **Snapshots.** The last result of every tab (launches, defects, test cases, last runs, automation history) is stored after each refresh. After a restart the stored result is shown right away, marked with its time, while a fresh one is collected in the background.
+- **Test case cache.** One row per test case; a refresh writes only new, changed and removed test cases (see [Test case cache](#test-case-cache)).
+- **Automation history** and **last runs**: see [Automation history](#automation-history) and [Last runs](#last-runs).
+
+The database belongs to one Allure TestOps instance: changing the endpoint or token clears it. With `docker-compose.yml` it sits in the `analytics-data` volume and survives `docker compose down` / `up` and image upgrades. Files of earlier versions (`history.db`, `cache/`) are migrated or removed on start.
 
 ## Automation history
 
-The automation trend is rebuilt from test case change logs and kept in SQLite, `/app/data/history.db` (Node's built-in `node:sqlite`, no extra dependencies):
+The automation trend is rebuilt from test case change logs and kept in the database:
 
 - The first refresh loads the change log of every test case, deleted ones included: one request per test case, once.
 - Later refreshes list test cases (active and deleted, one request per 1000) and load the change log again only for test cases whose automation or deletion state differs from the stored one, plus new test cases.
 - A test case that disappears from both lists was deleted for good; it is counted as deleted from the moment the application noticed it, since its change log is gone too.
-- History uses the test cases refresh period. Changing the endpoint or token clears it.
+- History has its own auto refresh period (Automation trend in Settings).
 
 Before the first entry of its change log a test case is taken to be in its first recorded state. Test cases deleted for good before the application started tracking them are not in the history.
 
@@ -73,7 +83,7 @@ The Outdated tab needs to know when each test case last ran. It is worked out fr
 - Launches created in the last 90 days are listed per project. For each launch the IDs of test cases with a finished result are read, and each of those test cases gets the launch's creation date as its last run.
 - A closed launch is read once; open launches are read again on every refresh, since results can still be added to them.
 - A test case not seen in these launches is checked once for any finished result at all, in chunks of test cases; a chunk with results is split until each test case is known. It is then either "ran more than 90 days ago" or "never ran".
-- The data uses the test cases refresh period.
+- The data has its own auto refresh period (Outdated in Settings).
 
 Setting a status calls `POST /api/rs/testcase/bulk/status/set` with the selected test case IDs, the workflow and the status; the status must belong to the chosen workflow. The token owner needs write access to the project. Note that automated uploads can later set workflow and status of a test case back to their defaults, for example when a trashed test case is uploaded again.
 
@@ -85,7 +95,7 @@ Loading the details of a test case takes one request, so the test case list is r
 - Details are requested only for new test cases and those whose modification date changed. Test cases that disappeared are dropped.
 - A project that fails to list keeps its cached test cases.
 - Once a day, and with **Reload all details** on the Test cases tab, every test case is reloaded, which also picks up changes that do not move the modification date, such as a renamed custom field value.
-- The cache is kept in the data directory, so a restarted container continues from it. Changing the endpoint or token drops it.
+- The cache is kept in the database, so a restarted container continues from it.
 
 The Test cases tab shows what the last refresh did: how many details were loaded, taken from the cache or removed.
 
@@ -94,7 +104,7 @@ The Test cases tab shows what the last refresh did: how many details were loaded
 - The server caches the result of crawling Allure TestOps. The browser only polls this cache.
 - Auto refresh is lazy: a new crawl starts when someone has the page open and the configured period has passed. Nobody watching means no load on Allure TestOps.
 - Any crawl, automatic or manual, starts at most once per 60 seconds. The limit is enforced on the server: an early `POST /api/*/refresh` gets `429` with `Retry-After`.
-- Launches and defects are refreshed independently, each with its own period. 0 disables auto refresh.
+- Every tab has its own auto refresh period in Settings: Launches, Defects, Test cases (shared with Test case map), Automation trend and Outdated. 0 disables auto refresh for that tab; the Refresh button still works. By default only Launches refresh automatically, every 5 minutes.
 
 ## Requests sent to Allure TestOps
 

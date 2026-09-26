@@ -1,4 +1,4 @@
-import { dropCache, loadCache, saveCache } from "./cache.js";
+import { database, defineTables, getMeta, setMeta, tx } from "./db.js";
 import { mapLimit } from "./pool.js";
 import type { Project } from "./collect.js";
 import type { TestOpsClient } from "./testops.js";
@@ -75,15 +75,19 @@ function toTestCase(row: ApiTestCaseRow, projectId: number, o: ApiTestCaseOvervi
 
 /** A full reload also picks up changes that do not move the modification date. */
 const FULL_RELOAD_EVERY_MS = 24 * 3_600_000;
-const CACHE_NAME = "testcases";
-const CACHE_VERSION = 1;
+const FULL_RELOAD_KEY = "testcases.fullReloadAt";
 
-interface Cache {
-  version: number;
-  endpoint: string;
-  fullReloadAt: number;
-  testCases: TestCase[];
-}
+defineTables(
+  `
+    create table if not exists testcase (
+      id integer primary key,
+      project_id integer not null,
+      -- the test case as the application shows it, JSON
+      data text not null
+    );
+  `,
+  ["testcase"],
+);
 
 let fullReloadRequested = false;
 
@@ -92,21 +96,22 @@ export function requestFullReload(requested = true): void {
   fullReloadRequested = requested;
 }
 
-export function dropTestCaseCache(): void {
-  dropCache(CACHE_NAME);
-}
-
 /**
  * All test cases of all projects. Details are requested only for new test
  * cases and those whose modification date changed; the rest come from the
- * cache kept in the data directory.
+ * test case table, which is updated row by row.
  */
 export async function collectTestCases(client: TestOpsClient, report: Report): Promise<TestCasesData> {
-  const stored = loadCache<Cache>(CACHE_NAME);
-  const cache = stored?.version === CACHE_VERSION && stored.endpoint === client.endpoint ? stored : null;
-  const full = fullReloadRequested || !cache || Date.now() - cache.fullReloadAt >= FULL_RELOAD_EVERY_MS;
+  const d = database(client.endpoint);
+  const lastFullReload = Number(getMeta(d, FULL_RELOAD_KEY) ?? 0);
+  const cached = new Map(
+    (d.prepare("select data from testcase").all() as { data: string }[]).map((r) => {
+      const tc = JSON.parse(r.data) as TestCase;
+      return [tc.id, tc];
+    }),
+  );
+  const full = fullReloadRequested || cached.size === 0 || Date.now() - lastFullReload >= FULL_RELOAD_EVERY_MS;
   fullReloadRequested = false;
-  const cached = new Map((cache?.testCases ?? []).map((tc) => [tc.id, tc]));
 
   report("Loading projects");
   const projects = await client.projects();
@@ -126,7 +131,7 @@ export async function collectTestCases(client: TestOpsClient, report: Report): P
     } catch (e) {
       failedProjects.push({ id: p.id, error: e instanceof Error ? e.message : String(e) });
       // A project that failed to list keeps its cached test cases.
-      kept.push(...(cache?.testCases ?? []).filter((tc) => tc.projectId === p.id));
+      kept.push(...[...cached.values()].filter((tc) => tc.projectId === p.id));
     } finally {
       report(`Test cases: listed ${++listed} of ${projects.length} projects`);
     }
@@ -154,9 +159,19 @@ export async function collectTestCases(client: TestOpsClient, report: Report): P
     });
   const testCases = [...reused, ...loaded, ...kept].sort((a, b) => a.projectId - b.projectId || a.id - b.id);
   const present = new Set(testCases.map((tc) => tc.id));
-  const fullReloadAt = full ? Date.now() : cache!.fullReloadAt;
+  const fullReloadAt = full ? Date.now() : lastFullReload;
 
-  saveCache(CACHE_NAME, { version: CACHE_VERSION, endpoint: client.endpoint, fullReloadAt, testCases } satisfies Cache);
+  // Only new, changed and removed test cases touch the table.
+  const upsert = d.prepare("insert or replace into testcase (id, project_id, data) values (?, ?, ?)");
+  const remove = d.prepare("delete from testcase where id = ?");
+  tx(d, () => {
+    for (const tc of loaded) upsert.run(tc.id, tc.projectId, JSON.stringify(tc));
+    for (const tc of reused) {
+      if (tc.automated !== cached.get(tc.id)?.automated) upsert.run(tc.id, tc.projectId, JSON.stringify(tc));
+    }
+    for (const id of cached.keys()) if (!present.has(id)) remove.run(id);
+    setMeta(d, FULL_RELOAD_KEY, String(fullReloadAt));
+  });
 
   return {
     endpoint: client.endpoint,

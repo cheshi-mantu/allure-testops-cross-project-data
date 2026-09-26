@@ -3,25 +3,24 @@ import { dirname, join } from "node:path";
 
 export const MIN_REFRESH_SEC = 60;
 
-export interface AppConfig {
+/**
+ * Auto refresh periods per tab, seconds; 0 disables auto refresh. Test cases
+ * covers both the table and the map, which share their data.
+ */
+export const REFRESH_KEYS = ["launchesRefreshSec", "defectsRefreshSec", "testCasesRefreshSec", "historyRefreshSec", "runsRefreshSec"] as const;
+export type RefreshKey = (typeof REFRESH_KEYS)[number];
+type RefreshPeriods = Record<RefreshKey, number>;
+
+export interface AppConfig extends RefreshPeriods {
   endpoint: string;
   token: string;
-  /** Auto refresh period for launches, seconds. 0 disables auto refresh. */
-  launchesRefreshSec: number;
-  /** Auto refresh period for defects, seconds. 0 disables auto refresh. */
-  defectsRefreshSec: number;
-  /** Auto refresh period for test cases, seconds. 0 disables auto refresh. */
-  testCasesRefreshSec: number;
 }
 
 /** What the UI is allowed to see: the token never leaves the container. */
-export interface PublicConfig {
+export interface PublicConfig extends RefreshPeriods {
   endpoint: string;
   tokenSet: boolean;
   tokenHint: string;
-  launchesRefreshSec: number;
-  defectsRefreshSec: number;
-  testCasesRefreshSec: number;
   minRefreshSec: number;
 }
 
@@ -31,6 +30,8 @@ const DEFAULTS: AppConfig = {
   launchesRefreshSec: 300,
   defectsRefreshSec: 0,
   testCasesRefreshSec: 0,
+  historyRefreshSec: 0,
+  runsRefreshSec: 0,
 };
 
 // The file lives in the container's writable layer: it survives a container
@@ -41,7 +42,10 @@ let current: AppConfig = load();
 
 function load(): AppConfig {
   try {
-    return { ...DEFAULTS, ...JSON.parse(readFileSync(file, "utf8")) };
+    const stored = JSON.parse(readFileSync(file, "utf8")) as Partial<AppConfig>;
+    // The automation trend and Outdated tabs used to follow the test cases period.
+    const inherited = stored.testCasesRefreshSec ?? DEFAULTS.testCasesRefreshSec;
+    return { ...DEFAULTS, historyRefreshSec: inherited, runsRefreshSec: inherited, ...stored };
   } catch {
     return { ...DEFAULTS };
   }
@@ -82,9 +86,7 @@ export function toPublic(cfg: AppConfig): PublicConfig {
     endpoint: cfg.endpoint,
     tokenSet: cfg.token !== "",
     tokenHint: cfg.token ? `…${cfg.token.slice(-4)}` : "",
-    launchesRefreshSec: cfg.launchesRefreshSec,
-    defectsRefreshSec: cfg.defectsRefreshSec,
-    testCasesRefreshSec: cfg.testCasesRefreshSec,
+    ...(Object.fromEntries(REFRESH_KEYS.map((k) => [k, cfg[k]])) as RefreshPeriods),
     minRefreshSec: MIN_REFRESH_SEC,
   };
 }

@@ -1,21 +1,25 @@
-export interface PublicConfig {
+/** Auto refresh periods per tab, seconds; 0 disables auto refresh. */
+export const REFRESH_SETTINGS = [
+  { key: "launchesRefreshSec", label: "Launches" },
+  { key: "defectsRefreshSec", label: "Defects" },
+  { key: "testCasesRefreshSec", label: "Test cases and test case map" },
+  { key: "historyRefreshSec", label: "Automation trend" },
+  { key: "runsRefreshSec", label: "Outdated" },
+] as const;
+export type RefreshKey = (typeof REFRESH_SETTINGS)[number]["key"];
+
+export type PublicConfig = Record<RefreshKey, number> & {
   endpoint: string;
   tokenSet: boolean;
   tokenHint: string;
-  launchesRefreshSec: number;
-  defectsRefreshSec: number;
-  testCasesRefreshSec: number;
   minRefreshSec: number;
-}
+};
 
-export interface ConfigInput {
+export type ConfigInput = Record<RefreshKey, number> & {
   endpoint: string;
   /** Empty string keeps the stored token. */
   token: string;
-  launchesRefreshSec: number;
-  defectsRefreshSec: number;
-  testCasesRefreshSec: number;
-}
+};
 
 export interface Snapshot<T> {
   data: T | null;
