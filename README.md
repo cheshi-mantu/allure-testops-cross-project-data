@@ -53,16 +53,26 @@ Open http://localhost:8080. On the **Settings** tab, enter the Allure TestOps UR
 
 ## Settings storage
 
-The server writes the endpoint, token and refresh periods to `/app/data/config.json` inside the container. The file survives `docker restart` and `docker compose stop/start` and is gone together with the container: after `docker rm`, `docker compose down` or an image upgrade, the settings have to be entered again. `docker-compose.yml` mounts a named volume at `/app/data`, so there the settings outlive the container. The token is never sent back to the browser; the UI only sees its last 4 characters. Launches and defects are kept in the process memory. Test cases are also cached in `/app/data/cache/` (see [Test case cache](#test-case-cache)), and the automation history is kept in `/app/data/history.db` (see [Automation history](#automation-history)).
+The server writes the endpoint, token and refresh periods to `/app/data/config.json` inside the container. The file survives `docker restart` and `docker compose stop/start` and is gone together with the container: after `docker rm`, `docker compose down` or an image upgrade, the settings have to be entered again. `docker-compose.yml` mounts a named volume at `/app/data`, so there the settings outlive the container. The token is never sent back to the browser; the UI only sees its last 4 characters. Everything the application collects is kept in `/app/data/data.db` (see [Data storage](#data-storage)).
+
+## Data storage
+
+Collected data lives in one SQLite database, `/app/data/data.db`, using Node's built-in `node:sqlite` (no extra dependencies):
+
+- **Snapshots.** The last result of every tab (launches, defects, test cases, last runs, automation history) is stored after each refresh. After a restart the stored result is shown right away, marked with its time, while a fresh one is collected in the background.
+- **Test case cache.** One row per test case; a refresh writes only new, changed and removed test cases (see [Test case cache](#test-case-cache)).
+- **Automation history** and **last runs**: see [Automation history](#automation-history) and [Last runs](#last-runs).
+
+The database belongs to one Allure TestOps instance: changing the endpoint or token clears it. With `docker-compose.yml` it sits in the `analytics-data` volume and survives `docker compose down` / `up` and image upgrades. Files of earlier versions (`history.db`, `cache/`) are migrated or removed on start.
 
 ## Automation history
 
-The automation trend is rebuilt from test case change logs and kept in SQLite, `/app/data/history.db` (Node's built-in `node:sqlite`, no extra dependencies):
+The automation trend is rebuilt from test case change logs and kept in the database:
 
 - The first refresh loads the change log of every test case, deleted ones included: one request per test case, once.
 - Later refreshes list test cases (active and deleted, one request per 1000) and load the change log again only for test cases whose automation or deletion state differs from the stored one, plus new test cases.
 - A test case that disappears from both lists was deleted for good; it is counted as deleted from the moment the application noticed it, since its change log is gone too.
-- History uses the test cases refresh period. Changing the endpoint or token clears it.
+- History uses the test cases refresh period.
 
 Before the first entry of its change log a test case is taken to be in its first recorded state. Test cases deleted for good before the application started tracking them are not in the history.
 
@@ -85,7 +95,7 @@ Loading the details of a test case takes one request, so the test case list is r
 - Details are requested only for new test cases and those whose modification date changed. Test cases that disappeared are dropped.
 - A project that fails to list keeps its cached test cases.
 - Once a day, and with **Reload all details** on the Test cases tab, every test case is reloaded, which also picks up changes that do not move the modification date, such as a renamed custom field value.
-- The cache is kept in the data directory, so a restarted container continues from it. Changing the endpoint or token drops it.
+- The cache is kept in the database, so a restarted container continues from it.
 
 The Test cases tab shows what the last refresh did: how many details were loaded, taken from the cache or removed.
 

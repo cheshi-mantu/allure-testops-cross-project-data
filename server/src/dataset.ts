@@ -20,6 +20,12 @@ export class ThrottledError extends Error {
 
 export type Loader<T> = (report: (progress: string) => void) => Promise<T>;
 
+/** Keeps the last result, so it can be shown right after a restart. */
+export interface SnapshotStore<T> {
+  load(): { data: T; fetchedAt: number } | null;
+  save(data: T, fetchedAt: number): void;
+}
+
 /**
  * Cached result of an expensive Allure TestOps crawl.
  *
@@ -40,7 +46,15 @@ export class Dataset<T> {
   constructor(
     private readonly loader: Loader<T>,
     private readonly periodSec: () => number,
-  ) {}
+    private readonly store?: SnapshotStore<T>,
+  ) {
+    // A stored result is shown until the first refresh, which starts on the first read.
+    const stored = store?.load();
+    if (stored) {
+      this.data = stored.data;
+      this.fetchedAt = stored.fetchedAt;
+    }
+  }
 
   /** Drops cached data, e.g. after the connection settings changed. */
   reset(): void {
@@ -55,7 +69,9 @@ export class Dataset<T> {
 
   /** Changes the cached data in place, e.g. after a write to Allure TestOps. */
   update(fn: (data: T) => void): void {
-    if (this.data) fn(this.data);
+    if (!this.data) return;
+    fn(this.data);
+    this.store?.save(this.data, this.fetchedAt ?? Date.now());
   }
 
   /** Never waits for a crawl: the UI polls while `refreshing` is true. */
@@ -114,6 +130,7 @@ export class Dataset<T> {
         this.data = data;
         this.fetchedAt = Date.now();
         this.error = null;
+        this.store?.save(data, this.fetchedAt);
       })
       .catch((e: unknown) => {
         if (generation !== this.generation) return;
