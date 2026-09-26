@@ -4,6 +4,7 @@ import type { ColumnsType } from "antd/es/table";
 import { api, type Launch, type LaunchesData } from "./api";
 import { countOrUnknown, hasFlag, LAUNCH_FLAGS, StatusCounts, StatusLegend, type LaunchFlag } from "./launchResults";
 import { RefreshBar } from "./RefreshBar";
+import { TreeCell } from "./TreeCell";
 import { buildTree, type Grouper, type TreeRow } from "./tree";
 import { useDataset } from "./useDataset";
 import { resizableComponents, useColumnWidths } from "./useColumnWidths";
@@ -88,6 +89,7 @@ export function LaunchesPage() {
   }, [data, filtered, byAuthor]);
 
   const { expanded, onExpand, expandAll, collapseAll } = useExpanded(rows);
+  const expandedSet = useMemo(() => new Set(expanded), [expanded]);
   const endpoint = data?.endpoint ?? "";
 
   const groupSpan = (r: TreeRow<Launch>) => ({ colSpan: r.kind === "group" ? 0 : 1 });
@@ -97,23 +99,26 @@ export function LaunchesPage() {
       key: "name",
       width: 320,
       onCell: (r) => ({ colSpan: r.kind === "group" ? COLUMN_COUNT : 1 }),
-      render: (_, r) =>
-        r.kind === "group" ? (
-          <Space>
-            {r.groupId === "project" ? (
-              <Typography.Link strong href={`${endpoint}/project/${r.items[0].projectId}/launches`} target="_blank">
-                {r.label}
-              </Typography.Link>
-            ) : (
-              <Typography.Text strong>{r.label}</Typography.Text>
-            )}
-            <Badge count={r.items.length} showZero color="blue" overflowCount={9999} />
-          </Space>
-        ) : (
-          <Typography.Link href={`${endpoint}/launch/${r.item.id}`} target="_blank">
-            {r.item.name}
-          </Typography.Link>
-        ),
+      render: (_, r) => (
+        <TreeCell row={r} expanded={expandedSet.has(r.key)} onToggle={() => onExpand(!expandedSet.has(r.key), r)}>
+          {r.kind === "group" ? (
+            <Space wrap size={[8, 0]}>
+              {r.groupId === "project" ? (
+                <Typography.Link strong href={`${endpoint}/project/${r.items[0].projectId}/launches`} target="_blank">
+                  {r.label}
+                </Typography.Link>
+              ) : (
+                <Typography.Text strong>{r.label}</Typography.Text>
+              )}
+              <Badge count={r.items.length} showZero color="blue" overflowCount={9999} />
+            </Space>
+          ) : (
+            <Typography.Link href={`${endpoint}/launch/${r.item.id}`} target="_blank">
+              {r.item.name}
+            </Typography.Link>
+          )}
+        </TreeCell>
+      ),
     },
     { title: "ID", key: "id", width: 90, onCell: groupSpan, render: (_, r) => (r.kind === "item" ? r.item.id : null) },
     {
@@ -275,7 +280,7 @@ export function LaunchesPage() {
         pagination={false}
         scroll={{ x: sized.totalWidth }}
         loading={!data && (snapshot?.refreshing ?? true)}
-        expandable={{ expandedRowKeys: expanded, onExpand: (open, r) => onExpand(open, r), indentSize: 24 }}
+        expandable={{ expandedRowKeys: expanded, indentSize: 0, expandIcon: () => null }}
         locale={{ emptyText: <Empty description={data ? "No launches found" : "Loading"} /> }}
       />
     </Space>
