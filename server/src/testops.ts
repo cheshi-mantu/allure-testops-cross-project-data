@@ -25,6 +25,15 @@ export interface ApiLaunch {
   environment?: { id: number; name: string; variable?: { id: number; name: string } }[];
   createdBy?: string;
   createdDate?: number;
+  /** Result counts by status; a null status means the result is still in progress. */
+  statistic?: ApiStatusCount[] | null;
+  newDefectsCount?: number;
+  knownDefectsCount?: number;
+}
+
+export interface ApiStatusCount {
+  status: string | null;
+  count: number;
 }
 
 export interface ApiIssue {
@@ -99,16 +108,34 @@ export class TestOpsClient {
   }
 
   async openLaunches(projectId: number): Promise<ApiLaunch[]> {
-    // The preview flavour returns tags and environment with each launch, so
-    // one request per page is enough. `closed` is checked again as a safeguard.
-    const search = Buffer.from(JSON.stringify([{ id: "close", type: "boolean", value: false }])).toString("base64");
-    const launches = await this.all<ApiLaunch>("/api/rs/launch", {
+    const launches = await this.launchPreviews(projectId, [{ id: "close", type: "boolean", value: false }]);
+    return launches.filter((l) => !l.closed);
+  }
+
+  async closedLaunchesSince(projectId: number, since: number): Promise<ApiLaunch[]> {
+    const launches = await this.launchPreviews(projectId, [
+      { id: "close", type: "boolean", value: true },
+      { id: "createdAfter", type: "long", value: since },
+    ]);
+    // Filters are checked again as a safeguard.
+    return launches.filter((l) => l.closed && (l.createdDate ?? since) >= since);
+  }
+
+  async launchStatistic(launchId: number): Promise<ApiStatusCount[]> {
+    return this.get<ApiStatusCount[]>(`/api/rs/launch/${launchId}/statistic`);
+  }
+
+  /**
+   * The preview flavour returns tags, environment and defect counts with each
+   * launch, so one request per page is enough.
+   */
+  private async launchPreviews(projectId: number, criteria: object[]): Promise<ApiLaunch[]> {
+    return this.all<ApiLaunch>("/api/rs/launch", {
       projectId: String(projectId),
       preview: "true",
-      search,
+      search: Buffer.from(JSON.stringify(criteria)).toString("base64"),
       sort: "created_date,desc",
     });
-    return launches.filter((l) => !l.closed);
   }
 
   async defects(projectId: number): Promise<ApiDefect[]> {

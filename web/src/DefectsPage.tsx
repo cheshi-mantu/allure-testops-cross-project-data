@@ -4,8 +4,10 @@ import type { ColumnsType } from "antd/es/table";
 import { api, type Defect, type DefectMatcher, type DefectsData } from "./api";
 import { isActive, matcherKey, matcherLabel, selectedMatchers, sharedKeys, type RegexFilter, type RegexScope } from "./matchers";
 import { RefreshBar } from "./RefreshBar";
+import { TreeCell } from "./TreeCell";
 import { buildTree, type Grouper, type TreeRow } from "./tree";
 import { useDataset } from "./useDataset";
+import { resizableComponents, useColumnWidths } from "./useColumnWidths";
 import { useExpanded } from "./useExpanded";
 
 type GroupId = "project" | "status" | "issue" | "author" | RegexScope;
@@ -48,9 +50,7 @@ function MatcherList({ matchers }: { matchers: DefectMatcher[] | null }) {
     regex && (
       <div>
         <Typography.Text type="secondary">{kind} </Typography.Text>
-        <Typography.Text code ellipsis={{ tooltip: regex }} style={{ maxWidth: 320 }}>
-          {regex}
-        </Typography.Text>
+        <Typography.Text code>{regex}</Typography.Text>
       </div>
     );
   return (
@@ -186,10 +186,15 @@ export function DefectsPage() {
         of: (d) => ({ key: author(d), label: author(d) || NO_AUTHOR, sort: sortLast(author(d)) }),
       },
     };
-    return buildTree(filtered, grouping.map((g) => all[g]), (d) => String(d.id));
+    return buildTree(
+      filtered,
+      grouping.map((g) => all[g]),
+      (d) => String(d.id),
+    );
   }, [data, filtered, grouping, regexFilter]);
 
   const { expanded, onExpand, expandAll, collapseAll } = useExpanded(rows);
+  const expandedSet = useMemo(() => new Set(expanded), [expanded]);
   const endpoint = data?.endpoint ?? "";
 
   const counter = (pick: (d: Defect) => number | null) => (_: unknown, r: TreeRow<Defect>) => {
@@ -207,31 +212,34 @@ export function DefectsPage() {
     {
       title: "Defect",
       key: "name",
-      minWidth: 280,
+      width: 320,
       onCell: (r) => ({ colSpan: r.kind === "group" ? 6 : 1 }),
-      render: (_, r) =>
-        r.kind === "group" ? (
-          <Space>
-            <Typography.Text type="secondary">{r.groupTitle}:</Typography.Text>
-            {r.groupId === "project" ? (
-              <Typography.Link strong href={`${endpoint}/project/${r.items[0].projectId}/defects`} target="_blank">
-                {r.label}
-              </Typography.Link>
-            ) : (
-              <Typography.Text strong code={r.groupId in REGEX_GROUP && r.label !== NO_REGEX}>
-                {r.label}
-              </Typography.Text>
-            )}
-            <Badge count={r.items.length} showZero color="blue" overflowCount={99999} />
-            {r.groupId !== "project" && r.groupId !== "status" && (
-              <Typography.Text type="secondary">in {new Set(r.items.map((d) => d.projectId)).size} project(s)</Typography.Text>
-            )}
-          </Space>
-        ) : (
-          <Typography.Link href={`${endpoint}/project/${r.item.projectId}/defects/${r.item.id}`} target="_blank">
-            {r.item.name}
-          </Typography.Link>
-        ),
+      render: (_, r) => (
+        <TreeCell row={r} expanded={expandedSet.has(r.key)} onToggle={() => onExpand(!expandedSet.has(r.key), r)}>
+          {r.kind === "group" ? (
+            <Space wrap size={[8, 0]}>
+              <Typography.Text type="secondary">{r.groupTitle}:</Typography.Text>
+              {r.groupId === "project" ? (
+                <Typography.Link strong href={`${endpoint}/project/${r.items[0].projectId}/defects`} target="_blank">
+                  {r.label}
+                </Typography.Link>
+              ) : (
+                <Typography.Text strong code={r.groupId in REGEX_GROUP && r.label !== NO_REGEX}>
+                  {r.label}
+                </Typography.Text>
+              )}
+              <Badge count={r.items.length} showZero color="blue" overflowCount={99999} />
+              {r.groupId !== "project" && r.groupId !== "status" && (
+                <Typography.Text type="secondary">in {new Set(r.items.map((d) => d.projectId)).size} project(s)</Typography.Text>
+              )}
+            </Space>
+          ) : (
+            <Typography.Link href={`${endpoint}/project/${r.item.projectId}/defects/${r.item.id}`} target="_blank">
+              {r.item.name}
+            </Typography.Link>
+          )}
+        </TreeCell>
+      ),
     },
     { title: "ID", key: "id", width: 80, onCell: groupSpan, render: (_, r) => (r.kind === "item" ? r.item.id : null) },
     {
@@ -284,6 +292,8 @@ export function DefectsPage() {
     { title: "Test results", key: "tr", width: 110, align: "right", render: counter((d) => d.testResults) },
     { title: "Launches", key: "launches", width: 90, align: "right", render: counter((d) => d.launches) },
   ];
+
+  const sized = useColumnWidths("defects", columns);
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
@@ -386,16 +396,22 @@ export function DefectsPage() {
         <Button size="small" onClick={collapseAll}>
           Collapse all
         </Button>
+        <Button size="small" onClick={sized.reset}>
+          Reset column widths
+        </Button>
       </Space>
       <Table<TreeRow<Defect>>
         size="small"
         rowKey="key"
-        columns={columns}
+        className="wrap-table"
+        columns={sized.columns}
+        components={resizableComponents}
+        tableLayout="fixed"
         dataSource={rows}
         pagination={false}
-        scroll={{ x: "max-content" }}
+        scroll={{ x: sized.totalWidth }}
         loading={!data && (snapshot?.refreshing ?? true)}
-        expandable={{ expandedRowKeys: expanded, onExpand: (open, r) => onExpand(open, r), indentSize: 24 }}
+        expandable={{ expandedRowKeys: expanded, indentSize: 0, expandIcon: () => null }}
         locale={{ emptyText: <Empty description={data ? "No defects found" : "Loading"} /> }}
       />
     </Space>

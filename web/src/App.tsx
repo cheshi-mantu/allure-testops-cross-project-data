@@ -54,7 +54,7 @@ export function App() {
             items={[
               {
                 key: "launches",
-                label: "Open launches",
+                label: "Launches",
                 disabled: !configured,
                 children: configured && <LaunchesPage key={generation} />,
               },

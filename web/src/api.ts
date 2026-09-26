@@ -35,20 +35,38 @@ export interface EnvVar {
   value: string;
 }
 
+export interface LaunchStatistic {
+  passed: number;
+  failed: number;
+  broken: number;
+  skipped: number;
+  unknown: number;
+  inProgress: number;
+}
+
 export interface Launch {
   id: number;
   name: string;
   projectId: number;
+  closed: boolean;
   createdBy: string | null;
   createdDate: number | null;
   tags: string[];
   env: EnvVar[];
+  /** null when the counts could not be loaded. */
+  statistic: LaunchStatistic | null;
+  unresolved: number | null;
+  muted: number | null;
+  newDefects: number | null;
+  knownDefects: number | null;
 }
 
 export interface LaunchesData {
   endpoint: string;
   projects: Project[];
   launches: Launch[];
+  /** Closed launches of this many last days are included when they have unresolved results. */
+  closedLaunchesDays: number;
   failedProjects: { id: number; error: string }[];
 }
 
