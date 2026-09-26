@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { collectDefects, collectLaunches } from "./collect.js";
+import { collectHistory, dropHistory } from "./history.js";
 import { collectTestCases, dropTestCaseCache, requestFullReload } from "./testcases.js";
 import {
   getConfig,
@@ -25,6 +26,7 @@ function currentClient(): TestOpsClient {
 const launches = new Dataset((report) => collectLaunches(currentClient(), report), () => getConfig().launchesRefreshSec);
 const defects = new Dataset((report) => collectDefects(currentClient(), report), () => getConfig().defectsRefreshSec);
 const testCases = new Dataset((report) => collectTestCases(currentClient(), report), () => getConfig().testCasesRefreshSec);
+const history = new Dataset((report) => collectHistory(currentClient(), report), () => getConfig().testCasesRefreshSec);
 
 class HttpError extends Error {
   constructor(
@@ -91,6 +93,8 @@ app.put("/api/config", async (req, res) => {
     defects.reset();
     testCases.reset();
     dropTestCaseCache();
+    history.reset();
+    dropHistory();
   }
   res.json(toPublic(getConfig()));
 });
@@ -113,6 +117,16 @@ app.get("/api/defects", (_req, res) => {
 app.post("/api/defects/refresh", (_req, res) => {
   requireConfigured();
   res.json(defects.refresh());
+});
+
+app.get("/api/history", (_req, res) => {
+  requireConfigured();
+  res.json(history.read());
+});
+
+app.post("/api/history/refresh", (_req, res) => {
+  requireConfigured();
+  res.json(history.refresh());
 });
 
 app.get("/api/testcases", (_req, res) => {

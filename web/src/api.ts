@@ -133,6 +133,26 @@ export interface TestCasesData {
   sync: { full: boolean; loaded: number; reused: number; removed: number; fullReloadAt: number };
 }
 
+/** [time, "a" for automated or "d" for deleted, 1 or 0] */
+export type HistoryEvent = [number, "a" | "d", 0 | 1];
+
+export interface TestCaseHistory {
+  id: number;
+  projectId: number;
+  created: number | null;
+  /** Automation state before the first recorded change; null when unknown. */
+  initial: 0 | 1 | null;
+  events: HistoryEvent[];
+}
+
+export interface HistoryData {
+  endpoint: string;
+  projects: Project[];
+  failedProjects: { id: number; error: string }[];
+  testCases: TestCaseHistory[];
+  sync: { changeLogsLoaded: number; changeLogsPending: number; changeLogsFailed: number; disappeared: number };
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -167,5 +187,7 @@ export const api = {
   refreshDefects: () => call<Snapshot<DefectsData>>("POST", "/api/defects/refresh"),
   testCases: () => call<Snapshot<TestCasesData>>("GET", "/api/testcases"),
   refreshTestCases: () => call<Snapshot<TestCasesData>>("POST", "/api/testcases/refresh"),
+  history: () => call<Snapshot<HistoryData>>("GET", "/api/history"),
+  refreshHistory: () => call<Snapshot<HistoryData>>("POST", "/api/history/refresh"),
   reloadAllTestCases: () => call<Snapshot<TestCasesData>>("POST", "/api/testcases/refresh?full=true"),
 };

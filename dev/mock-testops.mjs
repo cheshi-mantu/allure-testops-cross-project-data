@@ -86,7 +86,9 @@ for (const p of projects) {
       projectId: p.id,
       name: `${p.name}: ${features[i % 4]} scenario ${i}`,
       lastModifiedDate: Date.now() - i * 60_000,
+      createdDate: Date.now() - (180 - i * 4) * 86_400_000,
       automated: i % 3 !== 0,
+      deleted: false,
       layer: layer && { id: i % 4, name: layer },
       tags: [{ id: i % 4, name: tagNames[i % 4] }],
       issues: i % 3 === 0 ? [{ id, name: `JIRA-${100 + (i % 7)}`, url: `https://jira.example.com/browse/JIRA-${100 + (i % 7)}` }] : null,
@@ -108,6 +110,29 @@ for (const p of projects) {
   }
 }
 let overviewRequests = 0;
+let auditRequests = 0;
+
+// Change logs: uploaded test cases start manual and turn automated an hour
+// later; every 7th automated one went back to manual after 30 days; the last
+// two test cases of each project are in the trash.
+const audit = new Map();
+const logEntry = (ts, actionType, diff) => ({ id: ts, timestamp: ts, username: "_system", actionType, data: [{ type: "test_case", diff }] });
+for (const t of testCases) {
+  const i = t.id % 100;
+  const log = [logEntry(t.createdDate, "insert", { automated: { newValue: false }, deleted: { newValue: false } })];
+  if (t.automated) {
+    log.push(logEntry(t.createdDate + 3_600_000, "update", { automated: { oldValue: false, newValue: true } }));
+    if (i % 7 === 1) {
+      log.push(logEntry(t.createdDate + 30 * 86_400_000, "update", { automated: { oldValue: true, newValue: false } }));
+      t.automated = false;
+    }
+  }
+  if (i >= 38) {
+    log.push(logEntry(t.createdDate + 10 * 86_400_000, "update", { deleted: { oldValue: false, newValue: true } }));
+    t.deleted = true;
+  }
+  audit.set(t.id, log);
+}
 
 const page = (items, url) => {
   const n = Number(url.searchParams.get("page") ?? 0);
@@ -134,18 +159,23 @@ createServer((req, res) => {
     });
     return;
   }
-  // Mock controls, no auth: POST /mock/testcase/{id}/touch or /delete, GET /mock/stats.
+  // Mock controls, no auth: POST /mock/testcase/{id}/touch, /automate or /delete, GET /mock/stats.
   let c;
-  if ((c = url.pathname.match(/^\/mock\/testcase\/(\d+)\/(touch|delete)$/))) {
+  if ((c = url.pathname.match(/^\/mock\/testcase\/(\d+)\/(touch|automate|delete)$/))) {
     const t = testCases.find((x) => x.id === Number(c[1]));
     if (c[2] === "touch" && t) {
       t.lastModifiedDate = Date.now();
       t.tags = [...t.tags, { id: 99, name: "touched" }];
     }
+    if (c[2] === "automate" && t) {
+      t.automated = !t.automated;
+      t.lastModifiedDate = Date.now();
+      audit.get(t.id).push(logEntry(Date.now(), "update", { automated: { oldValue: !t.automated, newValue: t.automated } }));
+    }
     if (c[2] === "delete") testCases = testCases.filter((x) => x.id !== Number(c[1]));
     return send(200, { ok: Boolean(t) });
   }
-  if (url.pathname === "/mock/stats") return send(200, { overviewRequests });
+  if (url.pathname === "/mock/stats") return send(200, { overviewRequests, auditRequests });
   if (req.headers.authorization !== `Bearer ${JWT}`) return send(401, { message: "Unauthorized" });
   const path = url.pathname.replace(/^\/api\/rs\//, "/api/");
   const projectId = Number(url.searchParams.get("projectId"));
@@ -167,8 +197,16 @@ createServer((req, res) => {
     return send(200, { content: [], totalElements: l[m[2]], totalPages: l[m[2]], last: false });
   }
   if (path === "/api/testcase/__search") {
-    const rows = testCases.filter((t) => t.projectId === projectId).map(({ id, name, lastModifiedDate, automated }) => ({ id, name, lastModifiedDate, automated }));
+    const deleted = url.searchParams.get("deleted") === "true";
+    const rows = testCases
+      .filter((t) => t.projectId === projectId && t.deleted === deleted)
+      .map(({ id, name, projectId, lastModifiedDate, createdDate, automated, deleted }) => ({ id, name, projectId, lastModifiedDate, createdDate, automated, deleted }));
     return send(200, page(rows, url));
+  }
+  if (path === "/api/testcase/audit") {
+    auditRequests++;
+    const log = [...(audit.get(Number(url.searchParams.get("testCaseId"))) ?? [])].reverse();
+    return send(200, page(log, url));
   }
   if ((m = path.match(/^\/api\/testcase\/(\d+)\/overview$/))) {
     overviewRequests++;

@@ -8,8 +8,9 @@ import { TestCasesPage } from "./TestCasesPage";
 
 // The chart library is loaded only when the map tab is opened.
 const TestCaseMapPage = lazy(() => import("./TestCaseMapPage").then((m) => ({ default: m.TestCaseMapPage })));
+const TrendPage = lazy(() => import("./TrendPage").then((m) => ({ default: m.TrendPage })));
 
-type TabKey = "launches" | "defects" | "testcases" | "testcasemap" | "settings";
+type TabKey = "launches" | "defects" | "testcases" | "testcasemap" | "trend" | "settings";
 
 export function App() {
   const [config, setConfig] = useState<PublicConfig | null>(null);
@@ -81,6 +82,16 @@ export function App() {
                 children: configured && (
                   <Suspense fallback={<Spin style={{ marginTop: 48, width: "100%" }} />}>
                     <TestCaseMapPage key={generation} />
+                  </Suspense>
+                ),
+              },
+              {
+                key: "trend",
+                label: "Automation trend",
+                disabled: !configured,
+                children: configured && (
+                  <Suspense fallback={<Spin style={{ marginTop: 48, width: "100%" }} />}>
+                    <TrendPage key={generation} />
                   </Suspense>
                 ),
               },
