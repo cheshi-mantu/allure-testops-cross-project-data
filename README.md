@@ -7,6 +7,7 @@ A containerized React and Node.js application that reads the Allure TestOps REST
 - **Test cases** of all projects as a tree whose structure the user defines: up to 6 grouping levels in any order, chosen from project, automation (automated or manual), layer, issue, tag, every member role (Owner, Lead and so on) and every custom field found in the data. Project is an ordinary level and can be left out. A test case with several values in a level (several issues, owners or custom field values) appears in each of their groups. Every group, and the total line, shows two counters: automated and manual test cases. Test cases can be filtered by part of the name or ID, project, tags, and by any of the grouping dimensions through **Add filter**; every filter must match, and inside one filter any selected value is enough. Groups start collapsed and top-level rows are paged, so large projects stay responsive.
 - **Test case map**: the same grouping and filters as a sunburst or treemap, on its own tab. Segment size is the number of test cases; colour is either the automated share (red is manual, green is automated) or the group. Clicking a segment zooms into it. A test case with several values on a level is split evenly between their groups, so segments add up to their parent.
 - **Automation trend**: automated and manual test case counts and the automated share per day, for all or selected projects, over 30 days to all time, or the automated share of several projects side by side. The history is rebuilt from the change log of every test case and kept between refreshes (see [Automation history](#automation-history)).
+- **Outdated** test cases: those not run for at least 15, 30, 60 or 90 days, and those never run at all, grouped by project and filtered by name, project, automation and current status. Selected test cases (one by one, a whole project, or everything shown) can get a new workflow and status in one go; the application asks for confirmation and applies it on behalf of the API token owner, one bulk request per project.
 
 Launches can be sorted by name, ID and creation date, defects by name, ID and linked issue; sorting orders rows inside each group, groups keep their order, and empty values stay last. Table columns can be resized by dragging the right edge of a header; long content wraps inside its column. Widths are remembered per table in the browser, and **Reset column widths** restores the defaults.
 
@@ -65,6 +66,17 @@ The automation trend is rebuilt from test case change logs and kept in SQLite, `
 
 Before the first entry of its change log a test case is taken to be in its first recorded state. Test cases deleted for good before the application started tracking them are not in the history.
 
+## Last runs
+
+The Outdated tab needs to know when each test case last ran. It is worked out from launches and kept in the same SQLite database:
+
+- Launches created in the last 90 days are listed per project. For each launch the IDs of test cases with a finished result are read, and each of those test cases gets the launch's creation date as its last run.
+- A closed launch is read once; open launches are read again on every refresh, since results can still be added to them.
+- A test case not seen in these launches is checked once for any finished result at all, in chunks of test cases; a chunk with results is split until each test case is known. It is then either "ran more than 90 days ago" or "never ran".
+- The data uses the test cases refresh period.
+
+Setting a status calls `POST /api/rs/testcase/bulk/status/set` with the selected test case IDs, the workflow and the status; the status must belong to the chosen workflow. The token owner needs write access to the project. Note that automated uploads can later set workflow and status of a test case back to their defaults, for example when a trashed test case is uploaded again.
+
 ## Test case cache
 
 Loading the details of a test case takes one request, so the test case list is refreshed incrementally:
@@ -100,6 +112,11 @@ The Test cases tab shows what the last refresh did: how many details were loaded
 | Test case details | `GET /api/rs/testcase/{id}/overview`: layer, tags, issues, members, custom fields |
 | Test cases for the history | `GET /api/rs/testcase/__search?projectId=…&rql=true&deleted=false` and `&deleted=true`, reading `id`, `createdDate` and `automated` |
 | Change log | `GET /api/rs/testcase/audit?testCaseId=…`: automation and deletion changes with their time |
+| Launches for last runs | `GET /api/rs/launch/__search?projectId=…&rql=createdDate >= <epoch ms>` |
+| Test cases run in a launch | `GET /api/rs/testresult/__search?projectId=…&rql=launch = <id> and status != null`, reading `testCaseId` |
+| Ever run check | `GET /api/rs/testresult/query/validate?projectId=…&rql=testCaseId in [<ids>] and status != null`, reading `count` |
+| Workflows and statuses | `GET /api/rs/workflow`, `GET /api/rs/workflow/{id}` |
+| Setting a status (write) | `POST /api/rs/testcase/bulk/status/set` with `{"selection":{"projectId":…,"inverted":false,"leafsInclude":[…],"search":""},"workflowId":…,"statusId":…}` |
 
 Pages are requested 1000 items at a time. At most 8 requests to Allure TestOps run concurrently.
 

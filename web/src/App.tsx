@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Alert, Layout, Spin, Tabs, Typography } from "antd";
 import { api, type PublicConfig } from "./api";
 import { DefectsPage } from "./DefectsPage";
+import { OutdatedPage } from "./OutdatedPage";
 import { LaunchesPage } from "./LaunchesPage";
 import { SettingsPage } from "./SettingsPage";
 import { TestCasesPage } from "./TestCasesPage";
@@ -10,7 +11,7 @@ import { TestCasesPage } from "./TestCasesPage";
 const TestCaseMapPage = lazy(() => import("./TestCaseMapPage").then((m) => ({ default: m.TestCaseMapPage })));
 const TrendPage = lazy(() => import("./TrendPage").then((m) => ({ default: m.TrendPage })));
 
-type TabKey = "launches" | "defects" | "testcases" | "testcasemap" | "trend" | "settings";
+type TabKey = "launches" | "defects" | "testcases" | "testcasemap" | "trend" | "outdated" | "settings";
 
 export function App() {
   const [config, setConfig] = useState<PublicConfig | null>(null);
@@ -94,6 +95,12 @@ export function App() {
                     <TrendPage key={generation} />
                   </Suspense>
                 ),
+              },
+              {
+                key: "outdated",
+                label: "Outdated",
+                disabled: !configured,
+                children: configured && <OutdatedPage key={generation} />,
               },
               {
                 key: "settings",

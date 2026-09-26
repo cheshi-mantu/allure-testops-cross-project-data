@@ -1,7 +1,6 @@
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import type { Project } from "./collect.js";
+import { database, defineTables, tx } from "./db.js";
 import { mapLimit } from "./pool.js";
 import type { TestOpsClient } from "./testops.js";
 
@@ -48,16 +47,8 @@ type Report = (progress: string) => void;
 
 const CHANGE_LOGS_IN_PARALLEL = 8;
 
-let db: DatabaseSync | null = null;
-
-function open(): DatabaseSync {
-  if (db) return db;
-  const dir = process.env.DATA_DIR ?? join(process.cwd(), "data");
-  mkdirSync(dir, { recursive: true });
-  db = new DatabaseSync(join(dir, "history.db"));
-  db.exec(`
-    pragma journal_mode = wal;
-    create table if not exists meta (key text primary key, value text not null);
+defineTables(
+  `
     create table if not exists tc (
       id integer primary key,
       project_id integer not null,
@@ -79,37 +70,9 @@ function open(): DatabaseSync {
       source text not null,
       primary key (tc_id, ts, kind, value)
     );
-  `);
-  return db;
-}
-
-/** History belongs to one Allure TestOps instance. */
-function bindTo(endpoint: string): DatabaseSync {
-  const d = open();
-  const row = d.prepare("select value from meta where key = 'endpoint'").get() as { value: string } | undefined;
-  if (row?.value !== endpoint) {
-    d.exec("delete from event; delete from tc;");
-    d.prepare("insert or replace into meta (key, value) values ('endpoint', ?)").run(endpoint);
-  }
-  return d;
-}
-
-/** Runs `fn` in a transaction; the work in it is synchronous, so callers never interleave. */
-function tx(d: DatabaseSync, fn: () => void): void {
-  d.exec("begin");
-  try {
-    fn();
-    d.exec("commit");
-  } catch (e) {
-    d.exec("rollback");
-    throw e;
-  }
-}
-
-export function dropHistory(): void {
-  const d = open();
-  d.exec("delete from event; delete from tc; delete from meta;");
-}
+  `,
+  ["event", "tc"],
+);
 
 const bit = (v: unknown): 0 | 1 | null => (v === true ? 1 : v === false ? 0 : null);
 
@@ -139,7 +102,7 @@ function parseChangeLog(entries: ApiChangeLogEntry[], current: 0 | 1 | null) {
 }
 
 export async function collectHistory(client: TestOpsClient, report: Report): Promise<HistoryData> {
-  const d = bindTo(client.endpoint);
+  const d = database(client.endpoint);
   report("Loading projects");
   const projects = await client.projects();
   const failedProjects: HistoryData["failedProjects"] = [];

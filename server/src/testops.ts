@@ -161,22 +161,34 @@ export class TestOpsClient {
   async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
     const url = new URL(this.endpoint + path);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const res = await this.send("GET", url);
+    return (await res.json()) as T;
+  }
+
+  /** Sends a JSON body; the response body, if any, is ignored. */
+  async post(path: string, body: unknown): Promise<void> {
+    await this.send("POST", new URL(this.endpoint + path), body);
+  }
+
+  private send(method: "GET" | "POST", url: URL, body?: unknown): Promise<Response> {
     return this.slots.run(async () => {
-      let res = await this.fetchWithAuth(url);
+      let res = await this.fetchWithAuth(method, url, body);
       if (res.status === 401) {
         this.auth = null;
-        res = await this.fetchWithAuth(url);
+        res = await this.fetchWithAuth(method, url, body);
       }
       if (!res.ok) {
-        throw new TestOpsError(`${res.status} ${res.statusText} for GET ${url.pathname}${await errorDetails(res)}`, res.status);
+        throw new TestOpsError(`${res.status} ${res.statusText} for ${method} ${url.pathname}${await errorDetails(res)}`, res.status);
       }
-      return (await res.json()) as T;
+      return res;
     });
   }
 
-  private async fetchWithAuth(url: URL): Promise<Response> {
+  private async fetchWithAuth(method: string, url: URL, body?: unknown): Promise<Response> {
     const auth = await this.authorize();
-    return timedFetch(url, { headers: { Authorization: auth.header, Accept: "application/json" } });
+    const headers: Record<string, string> = { Authorization: auth.header, Accept: "application/json" };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    return timedFetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   }
 
   private async authorize(): Promise<Auth> {

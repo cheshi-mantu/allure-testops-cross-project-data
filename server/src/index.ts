@@ -2,7 +2,9 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { collectDefects, collectLaunches } from "./collect.js";
-import { collectHistory, dropHistory } from "./history.js";
+import { clearDatabase } from "./db.js";
+import { collectHistory } from "./history.js";
+import { applyStatus, collectRuns, workflows } from "./runs.js";
 import { collectTestCases, dropTestCaseCache, requestFullReload } from "./testcases.js";
 import {
   getConfig,
@@ -26,6 +28,7 @@ function currentClient(): TestOpsClient {
 const launches = new Dataset((report) => collectLaunches(currentClient(), report), () => getConfig().launchesRefreshSec);
 const defects = new Dataset((report) => collectDefects(currentClient(), report), () => getConfig().defectsRefreshSec);
 const testCases = new Dataset((report) => collectTestCases(currentClient(), report), () => getConfig().testCasesRefreshSec);
+const runs = new Dataset((report) => collectRuns(currentClient(), report), () => getConfig().testCasesRefreshSec);
 const history = new Dataset((report) => collectHistory(currentClient(), report), () => getConfig().testCasesRefreshSec);
 
 class HttpError extends Error {
@@ -94,7 +97,8 @@ app.put("/api/config", async (req, res) => {
     testCases.reset();
     dropTestCaseCache();
     history.reset();
-    dropHistory();
+    runs.reset();
+    clearDatabase();
   }
   res.json(toPublic(getConfig()));
 });
@@ -117,6 +121,61 @@ app.get("/api/defects", (_req, res) => {
 app.post("/api/defects/refresh", (_req, res) => {
   requireConfigured();
   res.json(defects.refresh());
+});
+
+app.get("/api/runs", (_req, res) => {
+  requireConfigured();
+  res.json(runs.read());
+});
+
+app.post("/api/runs/refresh", (_req, res) => {
+  requireConfigured();
+  res.json(runs.refresh());
+});
+
+app.get("/api/workflows", async (_req, res) => {
+  requireConfigured();
+  res.json(await workflows(currentClient()));
+});
+
+// Writes to Allure TestOps: sets workflow and status on test cases known from
+// the last-runs data; ids the application does not know are not touched.
+app.post("/api/runs/status", async (req, res) => {
+  requireConfigured();
+  const body = req.body ?? {};
+  const workflowId = Number(body.workflowId);
+  const statusId = Number(body.statusId);
+  const ids: unknown[] = Array.isArray(body.testCaseIds) ? body.testCaseIds : [];
+  if (!Number.isInteger(workflowId) || !Number.isInteger(statusId) || ids.length === 0) {
+    throw new HttpError(400, "workflowId, statusId and a non-empty testCaseIds list are required");
+  }
+  const known = new Map((runs.snapshot().data?.testCases ?? []).map((tc) => [tc.id, tc]));
+  const byProject = new Map<number, number[]>();
+  const unknownIds: number[] = [];
+  for (const raw of ids) {
+    const tc = known.get(Number(raw));
+    if (!tc) {
+      unknownIds.push(Number(raw));
+      continue;
+    }
+    if (!byProject.has(tc.projectId)) byProject.set(tc.projectId, []);
+    byProject.get(tc.projectId)!.push(tc.id);
+  }
+  const client = currentClient();
+  const results = await applyStatus(client, byProject, workflowId, statusId);
+  const workflow = await client.get<{ id: number; name: string; statuses?: { id: number; name: string; color?: string | null }[] }>(
+    `/api/rs/workflow/${workflowId}`,
+  );
+  const status = workflow.statuses?.find((s) => s.id === statusId);
+  const applied = new Set(results.filter((r) => r.error === null).flatMap((r) => byProject.get(r.projectId) ?? []));
+  runs.update((data) => {
+    for (const tc of data.testCases) {
+      if (!applied.has(tc.id)) continue;
+      tc.workflow = { id: workflow.id, name: workflow.name };
+      tc.status = status ? { id: status.id, name: status.name, color: status.color ?? null } : tc.status;
+    }
+  });
+  res.json({ results, unknownIds });
 });
 
 app.get("/api/history", (_req, res) => {

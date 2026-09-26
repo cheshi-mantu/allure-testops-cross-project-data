@@ -32,6 +32,7 @@ for (const p of projects) {
     const id = seq++;
     launches.push({
       id,
+      idx: i,
       name: `${p.name} ${tagNames[i % 4]} #${i}`,
       projectId: p.id,
       closed: i % 3 === 0,
@@ -109,6 +110,23 @@ for (const p of projects) {
     });
   }
 }
+// Workflows and statuses; manual test cases start in "Active" of the manual
+// workflow, automated ones in "Active" of the automated one.
+const workflows = [
+  { id: 1, name: "Default Manual", statuses: [{ id: 1, name: "Draft", color: "#aaaaaa" }, { id: 2, name: "Active", color: "#52c41a" }, { id: 3, name: "Outdated", color: "#999999" }] },
+  { id: 2, name: "Default Automated", statuses: [{ id: 4, name: "Active", color: "#52c41a" }, { id: 5, name: "Outdated", color: "#999999" }] },
+];
+for (const t of testCases) {
+  const w = workflows[t.automated ? 1 : 0];
+  t.workflow = { id: w.id, name: w.name };
+  t.status = w.statuses[t.automated ? 0 : 1];
+}
+
+// Runs: launch #k of a project runs its test cases with index % 12 === k, for
+// indexes below 30. Indexes 30-33 ran only long ago, 34 and up never ran.
+const ranIn = (t, l) => t.projectId === l.projectId && t.id % 100 < 30 && (t.id % 100) % 12 === l.idx;
+const ranEver = (t) => t.id % 100 < 34;
+
 let overviewRequests = 0;
 let auditRequests = 0;
 
@@ -200,8 +218,54 @@ createServer((req, res) => {
     const deleted = url.searchParams.get("deleted") === "true";
     const rows = testCases
       .filter((t) => t.projectId === projectId && t.deleted === deleted)
-      .map(({ id, name, projectId, lastModifiedDate, createdDate, automated, deleted }) => ({ id, name, projectId, lastModifiedDate, createdDate, automated, deleted }));
+      .map(({ id, name, projectId, lastModifiedDate, createdDate, automated, deleted, status, workflow }) => ({
+        id,
+        name,
+        projectId,
+        lastModifiedDate,
+        createdDate,
+        automated,
+        deleted,
+        status,
+        workflow,
+      }));
     return send(200, page(rows, url));
+  }
+  if (path === "/api/launch/__search") {
+    const after = Number((url.searchParams.get("rql") ?? "").match(/createdDate >= (\d+)/)?.[1] ?? 0);
+    return send(200, page(launches.filter((l) => l.projectId === projectId && l.createdDate >= after), url));
+  }
+  if (path === "/api/testresult/__search") {
+    const launchId = Number((url.searchParams.get("rql") ?? "").match(/launch = (\d+)/)?.[1]);
+    const l = launches.find((x) => x.id === launchId);
+    const rows = l ? testCases.filter((t) => ranIn(t, l)).map((t) => ({ id: launchId * 10_000 + t.id, testCaseId: t.id, name: t.name })) : [];
+    return send(200, page(rows, url));
+  }
+  if (path === "/api/testresult/query/validate") {
+    const ids = ((url.searchParams.get("rql") ?? "").match(/testCaseId in \[([\d,]*)\]/)?.[1] ?? "").split(",").map(Number);
+    const count = testCases.filter((t) => ids.includes(t.id) && ranEver(t)).length * 3;
+    return send(200, { valid: true, count });
+  }
+  if (path === "/api/workflow") return send(200, page(workflows, url));
+  if ((m = path.match(/^\/api\/workflow\/(\d+)$/))) return send(200, workflows.find((w) => w.id === Number(m[1])));
+  if (path === "/api/testcase/bulk/status/set" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      const { selection, workflowId, statusId } = JSON.parse(body);
+      const w = workflows.find((x) => x.id === workflowId);
+      const st = w?.statuses.find((x) => x.id === statusId);
+      if (!st) return send(400, { message: `status (${statusId}) is not present in workflow (${workflowId})` });
+      for (const t of testCases) {
+        if (t.projectId === selection.projectId && selection.leafsInclude.includes(t.id)) {
+          t.workflow = { id: w.id, name: w.name };
+          t.status = st;
+          t.lastModifiedDate = Date.now();
+        }
+      }
+      res.writeHead(204).end();
+    });
+    return;
   }
   if (path === "/api/testcase/audit") {
     auditRequests++;
