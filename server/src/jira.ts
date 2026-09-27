@@ -210,6 +210,9 @@ export async function syncJiraIssues(
     setMeta(d, "jira.lastSync", String(now));
     if (full) setMeta(d, "jira.fullSyncAt", String(now));
   });
-  const issues = (d.prepare("select data from jira_issue order by project, key").all() as { data: string }[]).map((r) => JSON.parse(r.data) as JiraIssue);
+  // Keys in natural order: PROJ-2 before PROJ-10.
+  const issues = (
+    d.prepare("select data from jira_issue order by project, cast(substr(key, instr(key, '-') + 1) as integer), key").all() as { data: string }[]
+  ).map((r) => JSON.parse(r.data) as JiraIssue);
   return { issues, sync: { full, loaded, total: issues.length } };
 }
