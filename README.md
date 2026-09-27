@@ -8,6 +8,7 @@ A containerized React and Node.js application that reads the Allure TestOps REST
 - **Test case map**: the same grouping and filters as a sunburst or treemap, on its own tab. Segment size is the number of test cases; colour is either the automated share (red is manual, green is automated) or the group. Clicking a group zooms into it: the centre of the sunburst then shows that group's name, test case count and automated share (hover it for the automated and manual counts), the same counts are shown next to the path, and the path above the chart leads back to any upper level (as does a click on the centre). A test case with several values on a level is split evenly between their groups, so segments add up to their parent.
 - **Automation trend**: automated and manual test case counts and the automated share per day, for all or selected projects, over 30 days to all time, or the automated share of several projects side by side. The history is rebuilt from the change log of every test case and kept between refreshes (see [Automation history](#automation-history)).
 - **Outdated** test cases: those not run for at least 15, 30, 60 or 90 days, and those never run at all, grouped by project and filtered by name, project, automation and current status. Selected test cases (one by one, a whole project, or everything shown) can get a new workflow and status in one go; the application asks for confirmation and applies it on behalf of the API token owner, one bulk request per project.
+- **Jira coverage**: issues of chosen Jira Cloud projects and issue types against the Allure TestOps test cases, launches and defects linked to them. A table lists the issues grouped by Jira project (summary in the tooltip of the issue key) with the number of linked test cases, launches and defects, each opening the list of them; a project row shows how many of its issues have each kind of link; a chart shows per issue type how many issues are covered. What counts as covered is chosen with check boxes: test cases, launches and defects, needing any or all of the ticked kinds. Issues can be filtered by key or summary, Jira project, status, issue type (check boxes) and coverage (all, covered, not covered).
 
 Launches can be sorted by name, ID and creation date, defects by name, ID and linked issue; sorting orders rows inside each group, groups keep their order, and empty values stay last. Table columns can be resized by dragging the right edge of a header; long content wraps inside its column. Widths are remembered per table in the browser, and **Reset column widths** restores the defaults.
 
@@ -99,6 +100,13 @@ Loading the details of a test case takes one request, so the test case list is r
 
 The Test cases tab shows what the last refresh did: how many details were loaded, taken from the cache or removed.
 
+## Jira coverage
+
+The Settings tab has a Jira Cloud section: the site (`https://your-site.atlassian.net`), the email of the API token owner and the token (Jira Cloud accepts API tokens only together with the owner's email), then the projects and issue types to take into account. The token is stored like the Allure TestOps one and never sent back to the browser.
+
+- **Jira issues** are kept in the database. The first load, and a daily one, takes all issues of the chosen projects and types; in between only issues updated since the last load are requested (`updated >= -<minutes>m` in JQL, with an hour of overlap). The daily full load drops deleted and moved issues. Changing the site, projects or issue types starts over with a full load. Its period is the Jira coverage auto refresh period in Settings.
+- **Links from Allure TestOps**: test cases, launches and defects with an issue link whose name equals a Jira issue key. The issue keys of a test case are requested again only when its modification date changed.
+
 ## Data refresh
 
 - The server caches the result of crawling Allure TestOps. The browser only polls this cache.
@@ -126,9 +134,22 @@ The Test cases tab shows what the last refresh did: how many details were loaded
 | Test cases run in a launch | `GET /api/rs/testresult/__search?projectId=…&rql=launch = <id> and status != null`, reading `testCaseId` |
 | Ever run check | `GET /api/rs/testresult/query/validate?projectId=…&rql=testCaseId in [<ids>] and status != null`, reading `count` |
 | Workflows and statuses | `GET /api/rs/workflow`, `GET /api/rs/workflow/{id}` |
+| Test cases with issue links | `GET /api/rs/testcase/__search?projectId=…&rql=issue != null`, then `GET /api/rs/testcase/{id}/issue` for new or changed ones |
+| Launches with issue links | `GET /api/rs/launch/__search?projectId=…&rql=issue != null`, reading `issues` |
+| Defects with issue links | `GET /api/rs/defect?projectId=…`, reading `issue` |
 | Setting a status (write) | `POST /api/rs/testcase/bulk/status/set` with `{"selection":{"projectId":…,"inverted":false,"leafsInclude":[…],"search":""},"workflowId":…,"statusId":…}` |
 
 Pages are requested 1000 items at a time. At most 8 requests to Allure TestOps run concurrently.
+
+## Requests sent to Jira Cloud
+
+| Data | Request |
+| --- | --- |
+| Checking the credentials | `GET /rest/api/3/myself` |
+| Projects and their issue types | `GET /rest/api/3/project/search?expand=issueTypes`, also on every refresh for project names |
+| Issues | `POST /rest/api/3/search/jql` with `project in (…) AND issuetype in (…)` and, for a delta, `AND updated >= -<minutes>m`; fields `summary`, `issuetype`, `status`, `project`, `updated` |
+
+Requests use basic authentication with the email and API token.
 
 ## Limitations
 
@@ -138,6 +159,9 @@ Pages are requested 1000 items at a time. At most 8 requests to Allure TestOps r
 - **Cost of test case details.** The first load requests details for every test case, one request each; later refreshes only for new and changed ones.
 - **Access to the application.** The application itself has no authentication: anyone who opens the page sees the data and can change the settings. Expose it on an internal network only.
 - The application sees only the projects the token owner has access to.
+
+- **Matching issues.** A link counts when its name equals a Jira issue key; the link URL is not compared with the Jira site, so keys of another Jira with the same project keys would match too.
+- **Deleted Jira issues** stay in the table until the next daily full load.
 
 ## Build and publishing on GitHub
 
@@ -179,7 +203,7 @@ node dev/mock-testops.mjs
 npm run dev
 ```
 
-`dev/mock-testops.mjs` starts an Allure TestOps stub on http://localhost:9090 with the token `mock-token`. `npm run dev` starts the server on :8080 and Vite on http://localhost:5173.
+`dev/mock-testops.mjs` starts an Allure TestOps stub on http://localhost:9090 with the token `mock-token`. `node dev/mock-jira.mjs` starts a Jira Cloud stub on http://localhost:9091 (email `dev@example.com`, token `jira-token`) for the Jira coverage tab. `npm run dev` starts the server on :8080 and Vite on http://localhost:5173.
 
 Layout:
 

@@ -7,20 +7,38 @@ export const MIN_REFRESH_SEC = 60;
  * Auto refresh periods per tab, seconds; 0 disables auto refresh. Test cases
  * covers both the table and the map, which share their data.
  */
-export const REFRESH_KEYS = ["launchesRefreshSec", "defectsRefreshSec", "testCasesRefreshSec", "historyRefreshSec", "runsRefreshSec"] as const;
+export const REFRESH_KEYS = [
+  "launchesRefreshSec",
+  "defectsRefreshSec",
+  "testCasesRefreshSec",
+  "historyRefreshSec",
+  "runsRefreshSec",
+  "coverageRefreshSec",
+] as const;
 export type RefreshKey = (typeof REFRESH_KEYS)[number];
 type RefreshPeriods = Record<RefreshKey, number>;
 
-export interface AppConfig extends RefreshPeriods {
+/** Jira Cloud site and what to take from it for the coverage tab. */
+export interface JiraConfig {
+  jiraUrl: string;
+  jiraEmail: string;
+  jiraToken: string;
+  jiraProjects: string[];
+  jiraIssueTypes: string[];
+}
+
+export interface AppConfig extends RefreshPeriods, JiraConfig {
   endpoint: string;
   token: string;
 }
 
 /** What the UI is allowed to see: the token never leaves the container. */
-export interface PublicConfig extends RefreshPeriods {
+export interface PublicConfig extends RefreshPeriods, Omit<JiraConfig, "jiraToken"> {
   endpoint: string;
   tokenSet: boolean;
   tokenHint: string;
+  jiraTokenSet: boolean;
+  jiraTokenHint: string;
   minRefreshSec: number;
 }
 
@@ -32,6 +50,12 @@ const DEFAULTS: AppConfig = {
   testCasesRefreshSec: 0,
   historyRefreshSec: 0,
   runsRefreshSec: 0,
+  coverageRefreshSec: 0,
+  jiraUrl: "",
+  jiraEmail: "",
+  jiraToken: "",
+  jiraProjects: [],
+  jiraIssueTypes: [],
 };
 
 // The file lives in the container's writable layer: it survives a container
@@ -86,6 +110,12 @@ export function toPublic(cfg: AppConfig): PublicConfig {
     endpoint: cfg.endpoint,
     tokenSet: cfg.token !== "",
     tokenHint: cfg.token ? `…${cfg.token.slice(-4)}` : "",
+    jiraUrl: cfg.jiraUrl,
+    jiraEmail: cfg.jiraEmail,
+    jiraTokenSet: cfg.jiraToken !== "",
+    jiraTokenHint: cfg.jiraToken ? `…${cfg.jiraToken.slice(-4)}` : "",
+    jiraProjects: cfg.jiraProjects,
+    jiraIssueTypes: cfg.jiraIssueTypes,
     ...(Object.fromEntries(REFRESH_KEYS.map((k) => [k, cfg[k]])) as RefreshPeriods),
     minRefreshSec: MIN_REFRESH_SEC,
   };
