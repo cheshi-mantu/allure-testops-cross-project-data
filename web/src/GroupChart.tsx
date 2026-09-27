@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Breadcrumb } from "antd";
 import * as echarts from "echarts/core";
 import { SunburstChart, TreemapChart } from "echarts/charts";
 import { TitleComponent, TooltipComponent } from "echarts/components";
@@ -11,6 +12,8 @@ export type ChartKind = "sunburst" | "treemap";
 export type ChartColor = "automation" | "groups";
 
 interface Node {
+  /** Key of the group row, unique in the tree. */
+  key: string;
   name: string;
   value: number;
   /** Test cases in the group, each counted once. */
@@ -55,6 +58,7 @@ function toNodes<T extends Item>(rows: TreeRow<T>[], share: (item: T, depth: num
     const children = toNodes(r.children, share, color, depth + 1);
     return [
       {
+        key: r.key,
         name: r.label,
         value,
         count: r.items.length,
@@ -66,6 +70,16 @@ function toNodes<T extends Item>(rows: TreeRow<T>[], share: (item: T, depth: num
       },
     ];
   });
+}
+
+/** Nodes from the top down to the one with `key`; empty when there is none. */
+function pathTo(nodes: Node[], key: string): Node[] {
+  for (const n of nodes) {
+    if (n.key === key) return [n];
+    const below = pathTo(n.children ?? [], key);
+    if (below.length > 0) return [n, ...below];
+  }
+  return [];
 }
 
 function tooltip(n: Node): string {
@@ -94,10 +108,26 @@ export function GroupChart<T extends Item>({
   const chart = useRef<echarts.ECharts | null>(null);
   const data = useMemo(() => toNodes(rows, share, color), [rows, share, color]);
 
+  // Zooming is done here rather than by the chart, so the centre and the
+  // path always describe the group in focus.
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  const path = useMemo(() => (focusKey ? pathTo(data, focusKey) : []), [data, focusKey]);
+  const focus = path.length > 0 ? path[path.length - 1] : null;
+  const shown = focus ? (focus.children ?? []) : data;
+  const onZoom = useRef<(key: string | null) => void>(() => {});
+  onZoom.current = (key) => setFocusKey(key);
+  const onBack = useRef<() => void>(() => {});
+  onBack.current = () => setFocusKey(path.length > 1 ? path[path.length - 2].key : null);
+
   useEffect(() => {
     if (!el.current) return;
     const c = echarts.init(el.current);
     chart.current = c;
+    c.on("click", (p) => {
+      const node = p.data as Node | null | undefined;
+      if (p.componentType === "title") onBack.current();
+      else if (node?.children?.length) onZoom.current(node.key);
+    });
     const observer = new ResizeObserver(() => c.resize());
     observer.observe(el.current);
     return () => {
@@ -117,14 +147,22 @@ export function GroupChart<T extends Item>({
       c.setOption(
         {
           ...common,
-          title: { text: String(total), subtext: "test cases", left: "center", top: "middle", textStyle: { fontSize: 22 } },
+          title: {
+            text: String(focus ? focus.count : total),
+            subtext: focus ? focus.name : "test cases",
+            left: "center",
+            top: "middle",
+            triggerEvent: focus !== null,
+            textStyle: { fontSize: 22 },
+            subtextStyle: { width: 120, overflow: "truncate" },
+          },
           series: [
             {
               type: "sunburst",
-              data,
+              data: shown,
               sort: undefined,
-              radius: ["14%", "96%"],
-              nodeClick: "rootToNode",
+              radius: ["18%", "96%"],
+              nodeClick: false,
               emphasis: { focus: "ancestor" },
               itemStyle: { borderColor: "#fff", borderWidth: 1 },
               label: { rotate: "radial", minAngle: 8, overflow: "truncate", width: 90, fontSize: 11 },
@@ -140,14 +178,14 @@ export function GroupChart<T extends Item>({
           series: [
             {
               type: "treemap",
-              data,
+              data: shown,
               width: "100%",
-              height: "92%",
+              height: "100%",
               top: 0,
               roam: false,
-              nodeClick: "zoomToNode",
+              nodeClick: false,
               leafDepth: undefined,
-              breadcrumb: { show: true, bottom: 0 },
+              breadcrumb: { show: false },
               label: { show: true, formatter: "{b}" },
               upperLabel: { show: true, height: 22 },
               levels: Array.from({ length: Math.max(levels, 1) + 1 }, (_, i) => ({
@@ -160,7 +198,28 @@ export function GroupChart<T extends Item>({
         true,
       );
     }
-  }, [data, kind, total, levels]);
+  }, [shown, focus, kind, total, levels]);
 
-  return <div ref={el} style={{ width: "100%", height: 640 }} />;
+  return (
+    <>
+      <Breadcrumb
+        style={{ marginBottom: 8 }}
+        items={[
+          { key: "", title: <a onClick={() => setFocusKey(null)}>All test cases ({total})</a> },
+          ...path.map((n, i) => ({
+            key: n.key,
+            title:
+              i === path.length - 1 ? (
+                `${n.groupTitle}: ${n.name} (${n.count})`
+              ) : (
+                <a onClick={() => setFocusKey(n.key)}>
+                  {n.groupTitle}: {n.name} ({n.count})
+                </a>
+              ),
+          })),
+        ]}
+      />
+      <div ref={el} style={{ width: "100%", height: 640 }} />
+    </>
+  );
 }
