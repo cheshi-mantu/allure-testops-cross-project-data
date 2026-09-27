@@ -10,8 +10,9 @@ import { TestCasesPage } from "./TestCasesPage";
 // The chart library is loaded only when the map tab is opened.
 const TestCaseMapPage = lazy(() => import("./TestCaseMapPage").then((m) => ({ default: m.TestCaseMapPage })));
 const TrendPage = lazy(() => import("./TrendPage").then((m) => ({ default: m.TrendPage })));
+const CoveragePage = lazy(() => import("./CoveragePage").then((m) => ({ default: m.CoveragePage })));
 
-type TabKey = "launches" | "defects" | "testcases" | "testcasemap" | "trend" | "outdated" | "settings";
+type TabKey = "launches" | "defects" | "testcases" | "testcasemap" | "trend" | "outdated" | "coverage" | "settings";
 
 export function App() {
   const [config, setConfig] = useState<PublicConfig | null>(null);
@@ -101,6 +102,19 @@ export function App() {
                 label: "Outdated",
                 disabled: !configured,
                 children: configured && <OutdatedPage key={generation} />,
+              },
+              {
+                key: "coverage",
+                label: "Jira coverage",
+                disabled: !configured,
+                children: configured && (
+                  <Suspense fallback={<Spin style={{ marginTop: 48, width: "100%" }} />}>
+                    <CoveragePage
+                      key={generation}
+                      jiraConfigured={Boolean(config.jiraUrl && config.jiraTokenSet && config.jiraProjects.length && config.jiraIssueTypes.length)}
+                    />
+                  </Suspense>
+                ),
               },
               {
                 key: "settings",

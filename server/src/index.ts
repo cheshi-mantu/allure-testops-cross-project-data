@@ -3,7 +3,9 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { collectDefects, collectLaunches, type DefectsData, type LaunchesData } from "./collect.js";
 import { clearDatabase, loadSnapshot, saveSnapshot } from "./db.js";
+import { collectCoverage, type CoverageData } from "./coverage.js";
 import { collectHistory, type HistoryData } from "./history.js";
+import { JiraClient } from "./jira.js";
 import { applyStatus, collectRuns, workflows, type RunsData } from "./runs.js";
 import { collectTestCases, requestFullReload, type TestCasesData } from "./testcases.js";
 import { getConfig, isConfigured, normalizeEndpoint, normalizeRefresh, REFRESH_KEYS, saveConfig, toPublic, type RefreshKey } from "./config.js";
@@ -11,6 +13,11 @@ import { Dataset, ThrottledError, type SnapshotStore } from "./dataset.js";
 import { TestOpsClient, TestOpsError } from "./testops.js";
 
 let client: TestOpsClient | null = null;
+
+function jiraClient(): JiraClient | null {
+  const cfg = getConfig();
+  return cfg.jiraUrl && cfg.jiraEmail && cfg.jiraToken ? new JiraClient({ url: cfg.jiraUrl, email: cfg.jiraEmail, token: cfg.jiraToken }) : null;
+}
 
 /** Datasets keep their last result in the database of the current instance. */
 function stored<T>(name: string): SnapshotStore<T> {
@@ -50,6 +57,14 @@ const history = new Dataset(
   (report) => collectHistory(currentClient(), report),
   () => getConfig().historyRefreshSec,
   stored<HistoryData>("history"),
+);
+const coverage = new Dataset(
+  (report) => {
+    const cfg = getConfig();
+    return collectCoverage(currentClient(), jiraClient(), { projects: cfg.jiraProjects, issueTypes: cfg.jiraIssueTypes }, report);
+  },
+  () => getConfig().coverageRefreshSec,
+  stored<CoverageData>("coverage"),
 );
 
 class HttpError extends Error {
@@ -105,6 +120,7 @@ app.put("/api/config", async (req, res) => {
   const connectionChanged = endpoint !== prev.endpoint || token !== prev.token;
   if (connectionChanged) await probe(endpoint, token);
   saveConfig({
+    ...prev,
     endpoint,
     token,
     ...(Object.fromEntries(REFRESH_KEYS.map((k) => [k, normalizeRefresh(body[k], prev[k])])) as Record<RefreshKey, number>),
@@ -116,6 +132,7 @@ app.put("/api/config", async (req, res) => {
     testCases.reset();
     history.reset();
     runs.reset();
+    coverage.reset();
     clearDatabase();
   }
   res.json(toPublic(getConfig()));
@@ -139,6 +156,66 @@ app.get("/api/defects", (_req, res) => {
 app.post("/api/defects/refresh", (_req, res) => {
   requireConfigured();
   res.json(defects.refresh());
+});
+
+app.get("/api/coverage", (_req, res) => {
+  requireConfigured();
+  res.json(coverage.read());
+});
+
+app.post("/api/coverage/refresh", (_req, res) => {
+  requireConfigured();
+  res.json(coverage.refresh());
+});
+
+function parseJira(body: Record<string, unknown>): { url: string; email: string; token: string } {
+  let url: string;
+  try {
+    url = normalizeEndpoint(String(body.jiraUrl ?? ""));
+  } catch {
+    throw new HttpError(400, "Invalid Jira URL: expected a URL like https://your-site.atlassian.net");
+  }
+  const email = String(body.jiraEmail ?? "").trim();
+  const token = String(body.jiraToken ?? "").trim() || getConfig().jiraToken;
+  if (!email || !token) throw new HttpError(400, "Jira email and API token are required");
+  return { url, email, token };
+}
+
+async function jiraProbe(c: { url: string; email: string; token: string }) {
+  try {
+    const client = new JiraClient(c);
+    const me = await client.myself();
+    return { user: me.displayName, projects: await client.projects() };
+  } catch (e) {
+    throw new HttpError(502, `Cannot connect to Jira: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** Checks the given (or stored) Jira credentials and lists the projects they see. */
+app.post("/api/jira/test", async (req, res) => {
+  res.json(await jiraProbe(parseJira(req.body ?? {})));
+});
+
+app.put("/api/jira/config", async (req, res) => {
+  const body = req.body ?? {};
+  const prev = getConfig();
+  const strings = (v: unknown) => (Array.isArray(v) ? [...new Set(v.map(String).filter(Boolean))] : []);
+  if (!body.jiraUrl && !body.jiraEmail && !body.jiraToken) {
+    saveConfig({ ...prev, jiraUrl: "", jiraEmail: "", jiraToken: "", jiraProjects: [], jiraIssueTypes: [] });
+  } else {
+    const c = parseJira(body);
+    if (c.url !== prev.jiraUrl || c.email !== prev.jiraEmail || c.token !== prev.jiraToken) await jiraProbe(c);
+    saveConfig({
+      ...prev,
+      jiraUrl: c.url,
+      jiraEmail: c.email,
+      jiraToken: c.token,
+      jiraProjects: strings(body.jiraProjects),
+      jiraIssueTypes: strings(body.jiraIssueTypes),
+    });
+  }
+  coverage.reset();
+  res.json(toPublic(getConfig()));
 });
 
 app.get("/api/runs", (_req, res) => {

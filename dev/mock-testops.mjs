@@ -33,6 +33,7 @@ for (const p of projects) {
     launches.push({
       id,
       idx: i,
+      issues: i % 4 === 1 ? [{ id: 900 + i, name: `JIRA-${100 + i}`, url: `https://jira.example.com/browse/JIRA-${100 + i}` }] : [],
       name: `${p.name} ${tagNames[i % 4]} #${i}`,
       projectId: p.id,
       closed: i % 3 === 0,
@@ -216,8 +217,9 @@ createServer((req, res) => {
   }
   if (path === "/api/testcase/__search") {
     const deleted = url.searchParams.get("deleted") === "true";
+    const withIssue = (url.searchParams.get("rql") ?? "").includes("issue != null");
     const rows = testCases
-      .filter((t) => t.projectId === projectId && t.deleted === deleted)
+      .filter((t) => t.projectId === projectId && t.deleted === deleted && (!withIssue || t.issues?.length > 0))
       .map(({ id, name, projectId, lastModifiedDate, createdDate, automated, deleted, status, workflow }) => ({
         id,
         name,
@@ -232,8 +234,13 @@ createServer((req, res) => {
     return send(200, page(rows, url));
   }
   if (path === "/api/launch/__search") {
-    const after = Number((url.searchParams.get("rql") ?? "").match(/createdDate >= (\d+)/)?.[1] ?? 0);
-    return send(200, page(launches.filter((l) => l.projectId === projectId && l.createdDate >= after), url));
+    const rql = url.searchParams.get("rql") ?? "";
+    const after = Number(rql.match(/createdDate >= (\d+)/)?.[1] ?? 0);
+    const withIssue = rql.includes("issue != null");
+    return send(200, page(launches.filter((l) => l.projectId === projectId && l.createdDate >= after && (!withIssue || l.issues.length > 0)), url));
+  }
+  if ((m = path.match(/^\/api\/testcase\/(\d+)\/issue$/))) {
+    return send(200, testCases.find((t) => t.id === Number(m[1]))?.issues ?? []);
   }
   if (path === "/api/testresult/__search") {
     const launchId = Number((url.searchParams.get("rql") ?? "").match(/launch = (\d+)/)?.[1]);

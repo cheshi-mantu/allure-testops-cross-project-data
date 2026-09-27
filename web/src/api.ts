@@ -5,6 +5,7 @@ export const REFRESH_SETTINGS = [
   { key: "testCasesRefreshSec", label: "Test cases and test case map" },
   { key: "historyRefreshSec", label: "Automation trend" },
   { key: "runsRefreshSec", label: "Outdated" },
+  { key: "coverageRefreshSec", label: "Jira coverage" },
 ] as const;
 export type RefreshKey = (typeof REFRESH_SETTINGS)[number]["key"];
 
@@ -13,7 +14,59 @@ export type PublicConfig = Record<RefreshKey, number> & {
   tokenSet: boolean;
   tokenHint: string;
   minRefreshSec: number;
+  jiraUrl: string;
+  jiraEmail: string;
+  jiraTokenSet: boolean;
+  jiraTokenHint: string;
+  jiraProjects: string[];
+  jiraIssueTypes: string[];
 };
+
+export interface JiraConfigInput {
+  jiraUrl: string;
+  jiraEmail: string;
+  /** Empty string keeps the stored token. */
+  jiraToken: string;
+  jiraProjects: string[];
+  jiraIssueTypes: string[];
+}
+
+export interface JiraProject {
+  key: string;
+  name: string;
+  issueTypes: string[];
+}
+
+export interface JiraIssue {
+  key: string;
+  summary: string;
+  type: string;
+  status: string;
+  /** "new", "indeterminate" or "done". */
+  statusCategory: string;
+  project: string;
+  updated: number | null;
+}
+
+export interface LinkedEntity {
+  id: number;
+  name: string;
+  projectId: number;
+  closed?: boolean;
+}
+
+export interface CoverageData {
+  endpoint: string;
+  jiraUrl: string;
+  jiraProjects: { key: string; name: string }[];
+  projects: Project[];
+  failedProjects: { id: number; error: string }[];
+  issues: JiraIssue[];
+  testCases: Record<string, LinkedEntity[]>;
+  launches: Record<string, LinkedEntity[]>;
+  defects: Record<string, LinkedEntity[]>;
+  sync: { full: boolean; loaded: number; total: number; testCaseLinksLoaded: number };
+}
 
 export type ConfigInput = Record<RefreshKey, number> & {
   endpoint: string;
@@ -233,6 +286,11 @@ export const api = {
   workflows: () => call<WorkflowInfo[]>("GET", "/api/workflows"),
   applyStatus: (testCaseIds: number[], workflowId: number, statusId: number) =>
     call<ApplyResponse>("POST", "/api/runs/status", { testCaseIds, workflowId, statusId }),
+  coverage: () => call<Snapshot<CoverageData>>("GET", "/api/coverage"),
+  refreshCoverage: () => call<Snapshot<CoverageData>>("POST", "/api/coverage/refresh"),
+  jiraTest: (c: Pick<JiraConfigInput, "jiraUrl" | "jiraEmail" | "jiraToken">) =>
+    call<{ user: string; projects: JiraProject[] }>("POST", "/api/jira/test", c),
+  saveJiraConfig: (c: JiraConfigInput) => call<PublicConfig>("PUT", "/api/jira/config", c),
   history: () => call<Snapshot<HistoryData>>("GET", "/api/history"),
   refreshHistory: () => call<Snapshot<HistoryData>>("POST", "/api/history/refresh"),
   reloadAllTestCases: () => call<Snapshot<TestCasesData>>("POST", "/api/testcases/refresh?full=true"),
