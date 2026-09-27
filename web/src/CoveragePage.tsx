@@ -165,12 +165,14 @@ export function CoveragePage({ jiraConfigured }: { jiraConfigured: boolean }) {
 
   const allRows = useMemo<Row[]>(
     () =>
-      (data?.issues ?? []).map((issue) => ({
-        issue,
-        testCases: data?.testCases[issue.key] ?? [],
-        launches: data?.launches[issue.key] ?? [],
-        defects: data?.defects[issue.key] ?? [],
-      })),
+      [...(data?.issues ?? [])]
+        .sort((a, b) => byLabel(a.key, b.key))
+        .map((issue) => ({
+          issue,
+          testCases: data?.testCases[issue.key] ?? [],
+          launches: data?.launches[issue.key] ?? [],
+          defects: data?.defects[issue.key] ?? [],
+        })),
     [data],
   );
   const options = useMemo(() => {
