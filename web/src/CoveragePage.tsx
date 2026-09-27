@@ -47,6 +47,12 @@ interface Row {
   defects: LinkedEntity[];
 }
 
+function ruleText(by: By): string {
+  const names = (by.kinds.length > 0 ? by.kinds : KINDS.map((k) => k.value)).map((k) => KINDS.find((x) => x.value === k)!.label.toLowerCase());
+  if (names.length === 1) return names[0];
+  return `${by.match === "all" && by.kinds.length > 0 ? "all" : "any"} of ${names.join(", ")}`;
+}
+
 function covered(r: Row, by: By): boolean {
   const kinds = by.kinds.length > 0 ? by.kinds : KINDS.map((k) => k.value);
   const has = (k: Kind) => r[k].length > 0;
@@ -101,25 +107,39 @@ function CoverageChart({ rows, by }: { rows: Row[]; by: By }) {
     };
   }, []);
   useEffect(() => {
-    const byType = new Map<string, { yes: number; no: number }>();
+    type Stats = { yes: number; no: number } & Record<Kind, number>;
+    const byType = new Map<string, Stats>();
     for (const r of rows) {
-      const t = byType.get(r.issue.type) ?? { yes: 0, no: 0 };
+      const t = byType.get(r.issue.type) ?? { yes: 0, no: 0, testCases: 0, launches: 0, defects: 0 };
       if (covered(r, by)) t.yes++;
       else t.no++;
+      for (const k of KINDS) if (r[k.value].length > 0) t[k.value]++;
       byType.set(r.issue.type, t);
     }
     const types = [...byType.keys()].sort(byLabel);
-    const pct = (t: { yes: number; no: number }) => (t.yes + t.no > 0 ? Math.round((t.yes / (t.yes + t.no)) * 100) : 0);
+    const pct = (t: Stats) => (t.yes + t.no > 0 ? Math.round((t.yes / (t.yes + t.no)) * 100) : 0);
+    // The tooltip names every kind of link, so a type covered in another way than the chosen rule is visible.
+    const tooltip = (params: { dataIndex: number }[]) => {
+      const type = types[params[0]?.dataIndex ?? 0];
+      const t = byType.get(type)!;
+      const total = t.yes + t.no;
+      return [
+        `<b>${type}</b>: ${total} issue(s)`,
+        `covered by the chosen rule: ${t.yes} (${pct(t)}%)`,
+        ...KINDS.map((k) => `with ${k.label.toLowerCase()}: ${t[k.value]}`),
+      ].join("<br/>");
+    };
+    const label = { show: true, formatter: (p: { value: number }) => (p.value > 0 ? String(p.value) : "") };
     chart.current?.setOption(
       {
-        tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: tooltip },
         legend: { top: 0 },
         grid: { left: 110, right: 60, top: 36, bottom: 24 },
         xAxis: { type: "value", minInterval: 1 },
         yAxis: { type: "category", data: types.map((t) => `${t} (${pct(byType.get(t)!)}%)`), inverse: true },
         series: [
-          { name: "Covered", type: "bar", stack: "c", color: "#52c41a", data: types.map((t) => byType.get(t)!.yes), label: { show: true } },
-          { name: "Not covered", type: "bar", stack: "c", color: "#ff7875", data: types.map((t) => byType.get(t)!.no), label: { show: true } },
+          { name: "Covered", type: "bar", stack: "c", color: "#52c41a", data: types.map((t) => byType.get(t)!.yes), label },
+          { name: "Not covered", type: "bar", stack: "c", color: "#ff7875", data: types.map((t) => byType.get(t)!.no), label },
         ],
       },
       true,
@@ -139,7 +159,7 @@ export function CoveragePage({ jiraConfigured }: { jiraConfigured: boolean }) {
   const [hiddenTypes, setHiddenTypes] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [coverage, setCoverage] = useState<Coverage>("all");
-  const [kinds, setKinds] = useState<Kind[]>(["testCases"]);
+  const [kinds, setKinds] = useState<Kind[]>(KINDS.map((k) => k.value));
   const [match, setMatch] = useState<Match>("any");
   const by = useMemo<By>(() => ({ kinds, match }), [kinds, match]);
 
@@ -351,7 +371,7 @@ export function CoveragePage({ jiraConfigured }: { jiraConfigured: boolean }) {
         />
       ) : null}
       {data && (
-        <Card size="small" title="Coverage by issue type">
+        <Card size="small" title={`Coverage by issue type, covered by ${ruleText(by)}`}>
           {scoped.length > 0 ? <CoverageChart rows={scoped} by={by} /> : <Empty description="No issues" />}
         </Card>
       )}
