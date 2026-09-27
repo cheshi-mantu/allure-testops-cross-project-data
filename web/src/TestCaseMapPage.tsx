@@ -47,9 +47,9 @@ export function TestCaseMapPage() {
         <Empty description="Choose at least one grouping level to see the chart" />
       ) : (
         <Card size="small">
-          <GroupChart rows={rows} share={share} total={filtered.length} kind={kind} color={color} levels={grouping.length} />
+          <GroupChart rows={rows} items={filtered} share={share} kind={kind} color={color} levels={grouping.length} />
           <Typography.Text type="secondary">
-            Click a segment to zoom into it{kind === "sunburst" ? ", the centre to go back" : ", the path below to go back"}.
+            Click a group to zoom into it{kind === "sunburst" ? ", the centre or the path above to go back" : ", the path above to go back"}.
             {color === "automation" ? " Colour shows the automated share: red is manual, green is automated, grey is unknown." : ""} A test case with
             several values on a level is split between their groups, so segment sizes add up.
           </Typography.Text>
