@@ -200,12 +200,14 @@ export async function collectHistory(client: TestOpsClient, report: Report): Pro
 
 function readHistory(d: DatabaseSync): TestCaseHistory[] {
   const byId = new Map<number, TestCaseHistory>();
-  const rows = d.prepare("select id, project_id, created, automated, initial from tc").all() as {
+  const rows = d.prepare("select id, project_id, created, automated, initial, deleted, gone from tc").all() as {
     id: number;
     project_id: number;
     created: number | null;
     automated: number | null;
     initial: number | null;
+    deleted: number;
+    gone: number;
   }[];
   for (const r of rows) {
     const initial = r.initial ?? r.automated;
@@ -217,12 +219,30 @@ function readHistory(d: DatabaseSync): TestCaseHistory[] {
       events: [],
     });
   }
-  const events = d.prepare("select tc_id, ts, kind, value from event order by tc_id, ts").all() as {
+  // Changes with the same time keep the order of the change log.
+  const events = d.prepare("select tc_id, ts, kind, value from event order by tc_id, ts, rowid").all() as {
     tc_id: number;
     ts: number;
     kind: "a" | "d";
     value: number;
   }[];
   for (const e of events) byId.get(e.tc_id)?.events.push([e.ts, e.kind, e.value === 1 ? 1 : 0]);
+
+  // The history ends in the state the test case is listed with now. Changes
+  // logged at the same moment can come in either order; the last one decides.
+  for (const r of rows) {
+    const tc = byId.get(r.id)!;
+    let automated = tc.initial;
+    let deleted: 0 | 1 = 0;
+    for (const [, kind, value] of tc.events) {
+      if (kind === "a") automated = value;
+      else deleted = value;
+    }
+    const at = tc.events.at(-1)?.[0] ?? r.created ?? Date.now();
+    const nowAutomated = r.automated === 1 ? 1 : r.automated === 0 ? 0 : null;
+    const nowDeleted = r.deleted || r.gone ? 1 : 0;
+    if (nowAutomated !== null && automated !== nowAutomated) tc.events.push([at, "a", nowAutomated]);
+    if (deleted !== nowDeleted) tc.events.push([at, "d", nowDeleted]);
+  }
   return [...byId.values()];
 }

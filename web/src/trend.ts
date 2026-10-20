@@ -53,8 +53,10 @@ export function buildTrend(testCases: TestCaseHistory[], from: number): TrendSer
     let deleted = false;
     let state: State = "none";
     const stateNow = (): State => (deleted || automated === null ? "none" : automated ? "auto" : "manual");
-    const begin = tc.created ?? -Infinity;
-    // A test case counts from its creation, with its first known state.
+    // A test case counts from its creation, with its first known state. The
+    // change log of a new test case can be a few milliseconds older than its
+    // creation date, so whichever comes first is the start.
+    const begin = tc.created === null ? -Infinity : Math.min(tc.created, tc.events[0]?.[0] ?? tc.created);
     if (begin !== -Infinity) {
       state = "none";
       const next = stateNow();
@@ -67,7 +69,7 @@ export function buildTrend(testCases: TestCaseHistory[], from: number): TrendSer
     for (const [ts, kind, value] of tc.events) {
       if (kind === "a") automated = value;
       else deleted = value === 1;
-      const next = ts < begin ? state : stateNow();
+      const next = stateNow();
       apply(state, next, ts);
       state = next;
     }
