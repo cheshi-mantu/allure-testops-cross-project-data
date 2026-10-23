@@ -12,6 +12,15 @@ A containerized React and Node.js application that reads the Allure TestOps REST
 
 Launches can be sorted by name, ID and creation date, defects by name, ID and linked issue; sorting orders rows inside each group, groups keep their order, and empty values stay last. Table columns can be resized by dragging the right edge of a header; long content wraps inside its column. Widths are remembered per table in the browser, and **Reset column widths** restores the defaults.
 
+## Quick(est) start
+
+```shell
+mkdir allure-testops-cross-project-data
+cd ./allure-testops-cross-project-data
+curl -O https://raw.githubusercontent.com/cheshi-mantu/allure-testops-cross-project-data/main/docker-compose.yml
+docker compose up -d
+```
+
 ## Finding the same defect in different projects
 
 Every defect can have matchers: a message regex and/or a trace regex that Allure TestOps uses to link test results to the defect. The **Matcher regex** row on the Defects tab works with them:
