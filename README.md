@@ -172,6 +172,10 @@ Requests use basic authentication with the email and API token.
 - **Matching issues.** A link counts when its name equals a Jira issue key; the link URL is not compared with the Jira site, so keys of another Jira with the same project keys would match too.
 - **Deleted Jira issues** stay in the table until the next daily full load.
 
+## Examples
+
+[`examples/`](examples/README.md) holds standalone scripts for questions the UI does not answer, for example the initial success rate of a launch: the share of tests whose first automated attempt passed, before reruns.
+
 ## Build and publishing on GitHub
 
 The image is built only when a GitHub release is published. Regular pushes and pull requests do not build it.
